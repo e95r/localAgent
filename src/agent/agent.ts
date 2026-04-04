@@ -4,6 +4,7 @@ import type { PageObserver } from '../observer/page-observer.js';
 import type { ActionValidator } from '../validator/action-validator.js';
 import { mapTargetIdToSelector } from '../utils/target-map.js';
 import { writeDebugArtifacts, type ArtifactConfig } from '../debug/artifact-writer.js';
+import type { LlmPlannerTrace } from '../planner/llm-planner.js';
 
 export interface AgentDependencies {
   executor: BrowserExecutor;
@@ -25,11 +26,16 @@ export class BrowserAgent {
     for (let step = 0; step < maxSteps; step += 1) {
       const page = this.deps.executor.getPage();
       const state = await this.deps.observer.collect(page);
-      const action = this.deps.planner.decide({ userGoal, pageState: state, actionHistory: this.history });
+      const action = await this.deps.planner.decide({ userGoal, pageState: state, actionHistory: this.history });
 
       const repeated = this.history.at(-1)?.type === action.type && JSON.stringify(this.history.at(-1)) === JSON.stringify(action);
       if (repeated) {
-        const askAction: AgentAction = { type: 'ask_user', question: 'Обнаружен цикл действий. Нужна дополнительная инструкция.', reason: 'Loop protection triggered' };
+        const askAction: AgentAction = {
+          type: 'ask_user',
+          question: 'Обнаружен цикл действий. Нужна дополнительная инструкция.',
+          reason: 'Loop protection triggered',
+          plannerSource: 'hybrid-ask-user',
+        };
         results.push({ action: askAction, pageState: state });
         await this.persistArtifacts('loop', state, askAction, { ok: false, error: 'loop' });
         break;
@@ -38,8 +44,15 @@ export class BrowserAgent {
       try {
         this.deps.validator.validate(action, state);
       } catch (error) {
-        await this.persistArtifacts('validator-rejection', state, action, { ok: false, error: error instanceof Error ? error.message : String(error) });
-        throw error;
+        const askAction: AgentAction = {
+          type: 'ask_user',
+          question: 'Предложенное действие небезопасно. Уточните цель.',
+          reason: error instanceof Error ? error.message : String(error),
+          plannerSource: 'hybrid-ask-user',
+        };
+        results.push({ action: askAction, pageState: state });
+        await this.persistArtifacts('validator-rejection', state, action, { ok: false, error: askAction.reason });
+        break;
       }
 
       const stepResult: AgentStepResult = { action, pageState: state };
@@ -68,7 +81,13 @@ export class BrowserAgent {
     return results;
   }
 
+  private getLlmTrace(): LlmPlannerTrace | undefined {
+    const planner = this.deps.planner as Planner & { getLastLlmTrace?: () => LlmPlannerTrace; getLastTrace?: () => LlmPlannerTrace };
+    return planner.getLastLlmTrace?.() ?? planner.getLastTrace?.();
+  }
+
   private async persistArtifacts(reason: string, pageState: AgentStepResult['pageState'], plannerOutput: AgentAction, validatorResult: { ok: boolean; error?: string }): Promise<void> {
+    const llmTrace = this.getLlmTrace();
     await writeDebugArtifacts({
       config: this.deps.debugArtifacts ?? { enabled: false, outputDir: 'debug-artifacts' },
       executor: this.deps.executor,
@@ -77,6 +96,13 @@ export class BrowserAgent {
       validatorResult,
       actionHistory: this.history,
       reason,
+      llmArtifacts: llmTrace?.invoked
+        ? {
+            prompt: llmTrace.prompt,
+            rawResponse: llmTrace.rawResponse,
+            parsedResponse: llmTrace.parsedResponse,
+          }
+        : undefined,
     });
   }
 }
