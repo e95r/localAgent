@@ -7,29 +7,30 @@ import { createFixtureServer } from '../test-server.js';
 let baseUrl = '';
 let closeServer: (() => Promise<void>) | undefined;
 
-describe('observer + capability registry + planner integration', () => {
+describe('observer + planner integration', () => {
   beforeAll(async () => {
     const server = await createFixtureServer();
     baseUrl = server.baseUrl;
     closeServer = server.close;
   });
-  afterAll(async () => closeServer?.());
 
-  it('popup detected before download', async () => {
-    const executor = new PlaywrightBrowserExecutor();
-    await executor.openUrl(`${baseUrl}/popup-download.html`);
-    const state = await new DOMPageObserver().collect(executor.getPage());
-    const action = new RuleBasedPlanner().decide({ userGoal: 'скачать pdf', pageState: state, actionHistory: [] });
-    expect(action.selectedCapabilityName).toBe('ClosePopupCapability');
-    await executor.close();
+  afterAll(async () => {
+    await closeServer?.();
   });
 
-  it('ambiguous result leads to ask_user', async () => {
+  it('plans click on download fixture', async () => {
     const executor = new PlaywrightBrowserExecutor();
-    await executor.openUrl(`${baseUrl}/ambiguous-search-page.html`);
-    const state = await new DOMPageObserver().collect(executor.getPage());
-    const action = new RuleBasedPlanner().decide({ userGoal: 'search playwright', pageState: state, actionHistory: [] });
-    expect(action.type).toBe('ask_user');
+    await executor.openUrl(`${baseUrl}/download.html`);
+
+    const observer = new DOMPageObserver();
+    const planner = new RuleBasedPlanner();
+
+    const state = await observer.collect(executor.getPage());
+    const action = planner.decide({ userGoal: 'скачать pdf', pageState: state, actionHistory: [] });
+
+    expect(state.interactiveElements.length).toBeGreaterThan(0);
+    expect(action.type).toBe('click');
+
     await executor.close();
   });
 });

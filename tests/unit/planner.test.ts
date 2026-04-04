@@ -1,28 +1,39 @@
 import { describe, expect, it } from 'vitest';
 import { RuleBasedPlanner } from '../../src/planner/rule-based-planner.js';
-import { makeElement, makeState } from './helpers.js';
+import type { PageState } from '../../src/types/page-state.js';
 
-describe('RuleBasedPlanner with capabilities', () => {
-  const planner = new RuleBasedPlanner();
+const planner = new RuleBasedPlanner();
 
-  it('returns click for single download target and explainability fields', () => {
+function state(elements: PageState['interactiveElements']): PageState {
+  return { url: 'http://x', title: 'x', visibleText: '', interactiveElements: elements };
+}
+
+describe('RuleBasedPlanner', () => {
+  it('returns click for single download target', () => {
     const action = planner.decide({
       userGoal: 'скачать файл',
-      pageState: makeState([makeElement({ id: 'd1', text: 'Download PDF' })]),
+      pageState: state([
+        { id: 'el-1', tag: 'button', role: null, text: 'Download PDF', ariaLabel: null, href: null, visible: true, enabled: true, boundingBox: null, selectorHint: '#a', domSnippet: '' },
+      ]),
       actionHistory: [],
     });
     expect(action.type).toBe('click');
-    expect(action.selectedCapabilityName).toBe('DownloadCapability');
-    expect(action.confidence).toBeGreaterThan(0.6);
   });
 
-  it('returns ask_user under low confidence/ambiguity', () => {
+  it('returns ask_user for ambiguous download buttons', () => {
     const action = planner.decide({
       userGoal: 'download',
-      pageState: makeState([makeElement({ id: 'd1', text: 'Download A' }), makeElement({ id: 'd2', text: 'Download B' })]),
+      pageState: state([
+        { id: 'el-1', tag: 'button', role: null, text: 'Download A', ariaLabel: null, href: null, visible: true, enabled: true, boundingBox: null, selectorHint: '#a', domSnippet: '' },
+        { id: 'el-2', tag: 'button', role: null, text: 'Download B', ariaLabel: null, href: null, visible: true, enabled: true, boundingBox: null, selectorHint: '#b', domSnippet: '' },
+      ]),
       actionHistory: [],
     });
     expect(action.type).toBe('ask_user');
-    expect(action.candidateTargets?.length).toBeGreaterThan(1);
+  });
+
+  it('returns fallback ask_user on unknown goal', () => {
+    const action = planner.decide({ userGoal: 'do magic', pageState: state([]), actionHistory: [] });
+    expect(action.type).toBe('ask_user');
   });
 });

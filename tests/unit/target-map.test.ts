@@ -1,8 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import { mapTargetIdToSelector } from '../../src/utils/target-map.js';
-import { makeElement } from './helpers.js';
+import type { InteractiveElement } from '../../src/types/page-state.js';
 
-const items = [makeElement({ id: 'el-1', selectorHint: '#download' })];
+const items: InteractiveElement[] = [
+  {
+    id: 'el-1',
+    tag: 'button',
+    role: null,
+    text: 'Download',
+    ariaLabel: null,
+    href: null,
+    visible: true,
+    enabled: true,
+    boundingBox: null,
+    selectorHint: '#download',
+    domSnippet: '<button id="download">Download</button>',
+  },
+];
 
 describe('target-map', () => {
   it('maps existing target', () => {
