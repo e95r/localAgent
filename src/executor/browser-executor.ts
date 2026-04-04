@@ -1,12 +1,14 @@
-import { chromium, type Browser, type BrowserContext, type Locator, type Page, type Download } from 'playwright';
+import { chromium, type Browser, type BrowserContext, type Download, type Locator, type Page } from 'playwright';
 
 export interface BrowserExecutor {
   openUrl(url: string): Promise<void>;
   clickElement(selector: string | Locator): Promise<void>;
   typeText(selector: string, text: string): Promise<void>;
+  pressEnter(selector: string): Promise<void>;
   extractText(selector: string): Promise<string>;
   getPageTitle(): Promise<string>;
   getCurrentUrl(): Promise<string>;
+  getPageHtml(): Promise<string>;
   waitForElement(selector: string): Promise<void>;
   takeScreenshot(path: string): Promise<void>;
   downloadFile(triggerAction: () => Promise<void>): Promise<Download>;
@@ -29,15 +31,16 @@ export class PlaywrightBrowserExecutor implements BrowserExecutor {
   }
 
   async clickElement(selector: string | Locator): Promise<void> {
-    if (typeof selector === 'string') {
-      await this.page!.click(selector);
-      return;
-    }
-    await selector.click();
+    if (typeof selector === 'string') return this.page!.click(selector);
+    return selector.click();
   }
 
   async typeText(selector: string, text: string): Promise<void> {
     await this.page!.fill(selector, text);
+  }
+
+  async pressEnter(selector: string): Promise<void> {
+    await this.page!.press(selector, 'Enter');
   }
 
   async extractText(selector: string): Promise<string> {
@@ -53,6 +56,10 @@ export class PlaywrightBrowserExecutor implements BrowserExecutor {
     return this.page!.url();
   }
 
+  async getPageHtml(): Promise<string> {
+    return this.page!.content();
+  }
+
   async waitForElement(selector: string): Promise<void> {
     await this.page!.waitForSelector(selector);
   }
@@ -62,16 +69,13 @@ export class PlaywrightBrowserExecutor implements BrowserExecutor {
   }
 
   async downloadFile(triggerAction: () => Promise<void>): Promise<Download> {
-    const page = this.getPage();
-    const downloadPromise = page.waitForEvent('download');
+    const downloadPromise = this.getPage().waitForEvent('download');
     await triggerAction();
     return downloadPromise;
   }
 
   getPage(): Page {
-    if (!this.page) {
-      throw new Error('Executor page is not initialized. Call openUrl first.');
-    }
+    if (!this.page) throw new Error('Executor page is not initialized. Call openUrl first.');
     return this.page;
   }
 
