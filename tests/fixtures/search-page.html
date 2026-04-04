@@ -1,0 +1,14 @@
+<!doctype html><html><body>
+<input id="search-input" type="search" placeholder="Search docs" />
+<button id="search-btn">Search</button>
+<div id="results"></div>
+<script>
+  const input = document.getElementById('search-input');
+  const out = document.getElementById('results');
+  function render() {
+    out.innerHTML = `<a id="result-1" href="/next1">${input.value} first</a><a id="result-2" href="/next2">${input.value} second</a>`;
+  }
+  document.getElementById('search-btn').addEventListener('click', render);
+  input.addEventListener('keydown', (e)=>{ if (e.key === 'Enter') render(); });
+</script>
+</body></html>
