@@ -1,64 +1,58 @@
 import type { AgentAction, Planner, PlannerInput } from '../types/actions.js';
-import type { InteractiveElement } from '../types/page-state.js';
-import { includesAnyNeedle } from '../utils/text.js';
-
-const DOWNLOAD_KEYWORDS = ['download', 'скачать', 'pdf', 'export'];
+import { DefaultCapabilityRegistry } from '../capabilities/capability-registry.js';
+import { ClosePopupCapability } from '../capabilities/close-popup-capability.js';
+import { DownloadCapability } from '../capabilities/download-capability.js';
+import { ExtractMainContentCapability } from '../capabilities/extract-main-content-capability.js';
+import { FillSearchInputCapability } from '../capabilities/fill-search-input-capability.js';
+import { OpenRelevantLinkCapability } from '../capabilities/open-relevant-link-capability.js';
+import { SelectListItemCapability } from '../capabilities/select-list-item-capability.js';
+import { SubmitSearchCapability } from '../capabilities/submit-search-capability.js';
+import type { CapabilityRegistry } from '../capabilities/types.js';
 
 export class RuleBasedPlanner implements Planner {
+  constructor(
+    private readonly registry: CapabilityRegistry = new DefaultCapabilityRegistry([
+      new ClosePopupCapability(),
+      new DownloadCapability(),
+      new FillSearchInputCapability(),
+      new SubmitSearchCapability(),
+      new SelectListItemCapability(),
+      new OpenRelevantLinkCapability(),
+      new ExtractMainContentCapability(),
+    ]),
+    private readonly confidenceThreshold = 0.6,
+  ) {}
+
   decide(input: PlannerInput): AgentAction {
-    const goal = input.userGoal.toLowerCase();
-
-    if (includesAnyNeedle(goal, ['скачать', 'download'])) {
-      const candidates = input.pageState.interactiveElements.filter((element) =>
-        includesAnyNeedle(`${element.text} ${element.ariaLabel ?? ''} ${element.href ?? ''}`, DOWNLOAD_KEYWORDS),
-      );
-
-      if (candidates.length === 1) {
-        return { type: 'click', targetId: candidates[0].id, confidence: 0.92, reason: 'Matched download intent' };
-      }
-
-      if (candidates.length > 1) {
-        return {
-          type: 'ask_user',
-          question: 'Найдено несколько вариантов скачивания. Какой выбрать?',
-          confidence: 0.45,
-          reason: 'Ambiguous download targets',
-        };
-      }
-
-      return { type: 'ask_user', question: 'Не нашёл кнопку скачивания. Уточните действие.', confidence: 0.2 };
-    }
-
-    if (includesAnyNeedle(goal, ['скопировать текст', 'copy text', 'extract text'])) {
-      const target = findTextContainer(input.pageState.interactiveElements);
-      if (target) {
-        return { type: 'extract_text', targetId: target.id, confidence: 0.8, reason: 'Text extraction intent' };
-      }
+    const ranked = this.registry.rank(input);
+    if (!ranked.length) {
       return {
-        type: 'extract_text',
-        targetId: 'body',
-        confidence: 0.6,
-        reason: 'Fallback to body extraction',
+        type: 'ask_user',
+        question: 'Недостаточно сигналов для действия. Уточните цель.',
+        confidence: 0.1,
+        reason: 'No matching capability',
       };
     }
 
-    if (includesAnyNeedle(goal, ['открыть первую ссылку', 'open first link'])) {
-      const firstLink = input.pageState.interactiveElements.find((element) => element.tag === 'a' && element.visible);
-      if (firstLink) {
-        return { type: 'click', targetId: firstLink.id, confidence: 0.86, reason: 'First visible link' };
-      }
-      return { type: 'ask_user', question: 'На странице нет ссылок для открытия.', confidence: 0.3 };
+    const [best, runnerUp] = ranked;
+    if (best.match.confidence < this.confidenceThreshold || (runnerUp && runnerUp.match.confidence >= best.match.confidence - 0.05)) {
+      return {
+        type: 'ask_user',
+        question: 'Нашлось несколько вариантов действия. Уточните, что сделать.',
+        confidence: best.match.confidence,
+        reason: best.match.reason,
+        candidateTargets: best.match.candidateTargets,
+        selectedCapabilityName: best.capability.name,
+      };
     }
 
+    const planned = best.capability.plan(input, best.match);
     return {
-      type: 'ask_user',
-      question: 'Недостаточно уверенности для действия. Уточните цель.',
-      confidence: 0.1,
-      reason: 'No matching rule',
+      ...planned,
+      confidence: best.match.confidence,
+      reason: best.match.reason,
+      candidateTargets: best.match.candidateTargets,
+      selectedCapabilityName: best.capability.name,
     };
   }
-}
-
-function findTextContainer(elements: InteractiveElement[]): InteractiveElement | undefined {
-  return elements.find((element) => ['main', 'article', 'body'].includes(element.tag));
 }
