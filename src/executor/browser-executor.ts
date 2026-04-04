@@ -31,8 +31,15 @@ export class PlaywrightBrowserExecutor implements BrowserExecutor {
   }
 
   async clickElement(selector: string | Locator): Promise<void> {
-    if (typeof selector === 'string') return this.page!.click(selector);
-    return selector.click();
+    const page = this.page!;
+    const previousUrl = page.url();
+
+    if (typeof selector === 'string') await page.click(selector);
+    else await selector.click();
+
+    if (page.url() === previousUrl) {
+      await page.waitForURL((url) => url.toString() !== previousUrl, { timeout: 1200 }).catch(() => undefined);
+    }
   }
 
   async typeText(selector: string, text: string): Promise<void> {
