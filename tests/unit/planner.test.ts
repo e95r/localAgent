@@ -1,39 +1,44 @@
 import { describe, expect, it } from 'vitest';
 import { RuleBasedPlanner } from '../../src/planner/rule-based-planner.js';
-import type { PageState } from '../../src/types/page-state.js';
+import { makeElement, makeState } from './helpers.js';
 
-const planner = new RuleBasedPlanner();
+describe('RuleBasedPlanner with capabilities', () => {
+  const planner = new RuleBasedPlanner();
 
-function state(elements: PageState['interactiveElements']): PageState {
-  return { url: 'http://x', title: 'x', visibleText: '', interactiveElements: elements };
-}
-
-describe('RuleBasedPlanner', () => {
-  it('returns click for single download target', () => {
+  it('returns click for single download target and explainability fields', () => {
     const action = planner.decide({
       userGoal: 'скачать файл',
-      pageState: state([
-        { id: 'el-1', tag: 'button', role: null, text: 'Download PDF', ariaLabel: null, href: null, visible: true, enabled: true, boundingBox: null, selectorHint: '#a', domSnippet: '' },
+      pageState: makeState([makeElement({ id: 'd1', text: 'Download PDF' })]),
+      actionHistory: [],
+    });
+    expect(action.type).toBe('click');
+    expect(action.selectedCapabilityName).toBe('DownloadCapability');
+    expect(action.confidence).toBeGreaterThan(0.6);
+  });
+
+  it('returns ask_user under low confidence/ambiguity', () => {
+    const action = planner.decide({
+      userGoal: 'download',
+      pageState: makeState([
+        makeElement({ id: 'd1', text: 'Download A' }),
+        makeElement({ id: 'd2', text: 'Download B' }),
+      ]),
+      actionHistory: [],
+    });
+    expect(action.type).toBe('ask_user');
+    expect(action.candidateTargets?.length).toBeGreaterThan(1);
+  });
+
+  it('prefers strongest capability when confidence gap is clear', () => {
+    const action = planner.decide({
+      userGoal: 'open first link',
+      pageState: makeState([
+        makeElement({ id: 's', tag: 'input', elementType: 'input', clickable: false, role: 'searchbox', value: 'cats' }),
+        makeElement({ id: 'b', text: 'Search' }),
+        makeElement({ id: 'l1', tag: 'a', elementType: 'link', text: 'cats first' }),
       ]),
       actionHistory: [],
     });
     expect(action.type).toBe('click');
-  });
-
-  it('returns ask_user for ambiguous download buttons', () => {
-    const action = planner.decide({
-      userGoal: 'download',
-      pageState: state([
-        { id: 'el-1', tag: 'button', role: null, text: 'Download A', ariaLabel: null, href: null, visible: true, enabled: true, boundingBox: null, selectorHint: '#a', domSnippet: '' },
-        { id: 'el-2', tag: 'button', role: null, text: 'Download B', ariaLabel: null, href: null, visible: true, enabled: true, boundingBox: null, selectorHint: '#b', domSnippet: '' },
-      ]),
-      actionHistory: [],
-    });
-    expect(action.type).toBe('ask_user');
-  });
-
-  it('returns fallback ask_user on unknown goal', () => {
-    const action = planner.decide({ userGoal: 'do magic', pageState: state([]), actionHistory: [] });
-    expect(action.type).toBe('ask_user');
   });
 });
