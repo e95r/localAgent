@@ -31,6 +31,7 @@ export class RuleBasedPlanner implements Planner {
         question: 'Недостаточно сигналов для действия. Уточните цель.',
         confidence: 0.1,
         reason: 'No matching capability',
+        plannerSource: 'rule-based',
       };
     }
 
@@ -43,6 +44,7 @@ export class RuleBasedPlanner implements Planner {
         reason: best.match.reason,
         candidateTargets: best.match.candidateTargets,
         selectedCapabilityName: best.capability.name,
+        plannerSource: 'rule-based',
       };
     }
 
@@ -53,6 +55,7 @@ export class RuleBasedPlanner implements Planner {
       reason: best.match.reason,
       candidateTargets: best.match.candidateTargets,
       selectedCapabilityName: best.capability.name,
+      plannerSource: 'rule-based',
     };
   }
 }
