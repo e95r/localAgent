@@ -1,4 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { mkdtemp, readdir, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { BrowserAgent } from '../../src/agent/agent.js';
 import { PlaywrightBrowserExecutor } from '../../src/executor/browser-executor.js';
 import { DOMPageObserver } from '../../src/observer/page-observer.js';
@@ -15,23 +18,47 @@ describe('planner + validator + executor + loop', () => {
     baseUrl = server.baseUrl;
     closeServer = server.close;
   });
+  afterAll(async () => closeServer?.());
 
-  afterAll(async () => {
-    await closeServer?.();
+  it('fill search + submit search then open first result', async () => {
+    const executor = new PlaywrightBrowserExecutor();
+    const agent = new BrowserAgent({ executor, observer: new DOMPageObserver(), planner: new RuleBasedPlanner(), validator: new DefaultActionValidator() });
+    await agent.run('search "cats" and open first link', `${baseUrl}/search-page.html`, 4);
+    expect(await executor.getCurrentUrl()).toContain('/next1');
+    await executor.close();
   });
 
-  it('returns ask_user on ambiguous page', async () => {
+  it('validator rejects disabled elements', async () => {
+    const executor = new PlaywrightBrowserExecutor();
+    const agent = new BrowserAgent({ executor, observer: new DOMPageObserver(), planner: new RuleBasedPlanner(), validator: new DefaultActionValidator() });
+    await expect(agent.run('download', `${baseUrl}/disabled-download-page.html`, 2)).rejects.toThrow();
+    await executor.close();
+  });
+
+
+  it('loop protection / max step handling', async () => {
+    const executor = new PlaywrightBrowserExecutor();
+    const agent = new BrowserAgent({ executor, observer: new DOMPageObserver(), planner: new RuleBasedPlanner(), validator: new DefaultActionValidator() });
+    const steps = await agent.run('download', `${baseUrl}/stubborn-download.html`, 5);
+    expect(steps.at(-1)?.action.type).toBe('ask_user');
+    await executor.close();
+  });
+
+  it('debug artifacts are written on ask_user', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'agent-debug-'));
     const executor = new PlaywrightBrowserExecutor();
     const agent = new BrowserAgent({
       executor,
       observer: new DOMPageObserver(),
       planner: new RuleBasedPlanner(),
       validator: new DefaultActionValidator(),
+      debugArtifacts: { enabled: true, outputDir: dir },
     });
 
-    const result = await agent.run('скачать файл', `${baseUrl}/ambiguous.html`, 2);
-    expect(result.at(-1)?.action.type).toBe('ask_user');
-
+    await agent.run('search', `${baseUrl}/ambiguous-search-page.html`, 2);
+    const folders = await readdir(dir);
+    expect(folders.length).toBeGreaterThan(0);
     await executor.close();
+    await rm(dir, { recursive: true, force: true });
   });
 });

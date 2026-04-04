@@ -9,6 +9,7 @@ export function normalizePageState(state: PageState): PageState {
     interactiveElements: state.interactiveElements.map((element) => ({
       ...element,
       text: normalizeText(element.text),
+      nearestTextContext: normalizeText(element.nearestTextContext),
       domSnippet: element.domSnippet.slice(0, 220),
     })),
   };

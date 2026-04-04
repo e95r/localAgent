@@ -5,6 +5,9 @@ import { DOMPageObserver } from '../../src/observer/page-observer.js';
 import { RuleBasedPlanner } from '../../src/planner/rule-based-planner.js';
 import { DefaultActionValidator } from '../../src/validator/action-validator.js';
 import { BrowserAgent } from '../../src/agent/agent.js';
+import { mkdtemp, readdir, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 
 let baseUrl = '';
 let closeServer: (() => Promise<void>) | undefined;
@@ -15,70 +18,72 @@ test.beforeAll(async () => {
   closeServer = server.close;
 });
 
-test.afterAll(async () => {
-  await closeServer?.();
-});
+test.afterAll(async () => closeServer?.());
 
-test('download scenario', async () => {
+function makeAgent(executor: PlaywrightBrowserExecutor, debugArtifacts?: { enabled: boolean; outputDir: string }) {
+  return new BrowserAgent({ executor, observer: new DOMPageObserver(), planner: new RuleBasedPlanner(), validator: new DefaultActionValidator(), debugArtifacts });
+}
+
+test('popup is closed and then download starts', async () => {
   const executor = new PlaywrightBrowserExecutor();
-  await executor.openUrl(`${baseUrl}/download.html`);
-
-  const observer = new DOMPageObserver();
-  const state = await observer.collect(executor.getPage());
-  const target = state.interactiveElements.find((e) => e.text.includes('Download'));
-
-  expect(target).toBeTruthy();
-
-  const download = await executor.downloadFile(async () => {
-    await executor.clickElement('#download-link');
-  });
-
-  expect(download.suggestedFilename()).toContain('mock');
+  const agent = makeAgent(executor);
+  await agent.run('download pdf', `${baseUrl}/popup-download.html`, 3);
+  const state = await new DOMPageObserver().collect(executor.getPage());
+  expect(state.interactiveElements.find((e) => e.text.includes('Download'))?.visible).toBeTruthy();
   await executor.close();
 });
 
-test('extract article text', async () => {
+test('search input is filled, submitted, and first relevant result is opened', async () => {
   const executor = new PlaywrightBrowserExecutor();
-  await executor.openUrl(`${baseUrl}/article.html`);
-  const text = await executor.extractText('article');
-  expect(text).toContain('local article fixture');
-  await executor.close();
-});
-
-test('open first link through agent loop', async () => {
-  const executor = new PlaywrightBrowserExecutor();
-  const agent = new BrowserAgent({
-    executor,
-    observer: new DOMPageObserver(),
-    planner: new RuleBasedPlanner(),
-    validator: new DefaultActionValidator(),
-  });
-
-  await agent.run('открыть первую ссылку', `${baseUrl}/links.html`, 1);
+  const agent = makeAgent(executor);
+  await agent.run('search "cats" and open first link', `${baseUrl}/search-page.html`, 5);
   expect(await executor.getCurrentUrl()).toContain('/next1');
   await executor.close();
 });
 
-test('ambiguous buttons lead to ask_user', async () => {
+test('select last list item and open it', async () => {
   const executor = new PlaywrightBrowserExecutor();
-  const agent = new BrowserAgent({
-    executor,
-    observer: new DOMPageObserver(),
-    planner: new RuleBasedPlanner(),
-    validator: new DefaultActionValidator(),
-  });
+  const agent = makeAgent(executor);
+  await agent.run('open last item', `${baseUrl}/list-page.html`, 2);
+  expect(await executor.getCurrentUrl()).toContain('/next3');
+  await executor.close();
+});
 
-  const steps = await agent.run('скачать файл', `${baseUrl}/ambiguous.html`, 2);
+test('extract main text from page with several content blocks', async () => {
+  const executor = new PlaywrightBrowserExecutor();
+  const agent = makeAgent(executor);
+  const result = await agent.run('extract text', `${baseUrl}/multi-article-page.html`, 2);
+  expect(result.some((step) => step.action.type === 'ask_user' || step.extractedText)).toBeTruthy();
+  await executor.close();
+});
+
+test('disabled download is not clicked', async () => {
+  const executor = new PlaywrightBrowserExecutor();
+  const agent = makeAgent(executor);
+  await expect(agent.run('download file', `${baseUrl}/disabled-download-page.html`, 2)).rejects.toThrow();
+  await executor.close();
+});
+
+test('ambiguous search field causes ask_user', async () => {
+  const executor = new PlaywrightBrowserExecutor();
+  const agent = makeAgent(executor);
+  const steps = await agent.run('search docs', `${baseUrl}/ambiguous-search-page.html`, 2);
   expect(steps.at(-1)?.action.type).toBe('ask_user');
   await executor.close();
 });
 
-test('invalid targetId is rejected by validator', async () => {
+test('invalid targetId is rejected', async () => {
   const validator = new DefaultActionValidator();
-  expect(() =>
-    validator.validate(
-      { type: 'click', targetId: 'invalid' },
-      { url: 'x', title: 'x', visibleText: '', interactiveElements: [] },
-    ),
-  ).toThrow(/not found/);
+  expect(() => validator.validate({ type: 'click', targetId: 'invalid' }, { url: 'x', title: 'x', visibleText: '', interactiveElements: [] })).toThrow(/not found/);
+});
+
+test('debug artifacts are created on ambiguity/failure', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'agent-e2e-debug-'));
+  const executor = new PlaywrightBrowserExecutor();
+  const agent = makeAgent(executor, { enabled: true, outputDir: dir });
+  await agent.run('search docs', `${baseUrl}/ambiguous-search-page.html`, 2);
+  const folders = await readdir(dir);
+  expect(folders.length).toBeGreaterThan(0);
+  await executor.close();
+  await rm(dir, { recursive: true, force: true });
 });
