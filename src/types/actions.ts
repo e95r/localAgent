@@ -1,13 +1,10 @@
 import type { PageState } from './page-state.js';
 
-export type PlannerSource = 'rule-based' | 'llm' | 'hybrid-ask-user';
-
 export interface DecisionMeta {
   confidence?: number;
   reason?: string;
   candidateTargets?: string[];
   selectedCapabilityName?: string;
-  plannerSource?: PlannerSource;
 }
 
 export type AgentAction =
@@ -24,10 +21,8 @@ export interface PlannerInput {
   actionHistory: AgentAction[];
 }
 
-export type MaybePromise<T> = T | Promise<T>;
-
 export interface Planner {
-  decide(input: PlannerInput): MaybePromise<AgentAction>;
+  decide(input: PlannerInput): AgentAction;
 }
 
 export interface AgentStepResult {
