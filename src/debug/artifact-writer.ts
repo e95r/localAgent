@@ -9,6 +9,12 @@ export interface ArtifactConfig {
   outputDir: string;
 }
 
+export interface LlmArtifactPayload {
+  prompt?: string;
+  rawResponse?: string;
+  parsedResponse?: unknown;
+}
+
 export async function writeDebugArtifacts(params: {
   config: ArtifactConfig;
   executor: BrowserExecutor;
@@ -17,6 +23,7 @@ export async function writeDebugArtifacts(params: {
   validatorResult: { ok: boolean; error?: string };
   actionHistory: AgentAction[];
   reason: string;
+  llmArtifacts?: LlmArtifactPayload;
 }): Promise<string | null> {
   if (!params.config.enabled) return null;
 
@@ -28,8 +35,17 @@ export async function writeDebugArtifacts(params: {
   await writeFile(path.join(dir, 'current.html'), await params.executor.getPageHtml(), 'utf-8');
   await writeFile(path.join(dir, 'page-state.json'), JSON.stringify(params.pageState, null, 2), 'utf-8');
   await writeFile(path.join(dir, 'planner-output.json'), JSON.stringify(params.plannerOutput, null, 2), 'utf-8');
+  await writeFile(path.join(dir, 'planner-source.json'), JSON.stringify({ source: params.plannerOutput.plannerSource ?? 'unknown' }, null, 2), 'utf-8');
   await writeFile(path.join(dir, 'validator-result.json'), JSON.stringify(params.validatorResult, null, 2), 'utf-8');
   await writeFile(path.join(dir, 'action-history.json'), JSON.stringify(params.actionHistory, null, 2), 'utf-8');
+
+  if (params.llmArtifacts) {
+    if (params.llmArtifacts.prompt) await writeFile(path.join(dir, 'llm-prompt.txt'), params.llmArtifacts.prompt, 'utf-8');
+    if (params.llmArtifacts.rawResponse) await writeFile(path.join(dir, 'llm-raw-response.txt'), params.llmArtifacts.rawResponse, 'utf-8');
+    if (params.llmArtifacts.parsedResponse !== undefined) {
+      await writeFile(path.join(dir, 'llm-parsed-response.json'), JSON.stringify(params.llmArtifacts.parsedResponse, null, 2), 'utf-8');
+    }
+  }
 
   return dir;
 }
