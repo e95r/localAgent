@@ -32,6 +32,18 @@ npm run cli -- show-scenario --file scenarios/search.json
 npm run cli -- run-library-scenario download-file --mode adaptive --param startUrl=http://127.0.0.1:3000/replay-download-page.html --param targetKeyword=Download
 ```
 
+### Working demo
+
+This demo runs the `extract-main-text` library scenario against the public IANA example page and saves extracted page text to `main.txt`.
+
+```bash
+npm run demo:extract-iana
+```
+
+After the run, inspect artifacts in `.artifacts/iana-text/`, especially:
+- `.artifacts/iana-text/cli-run-summary.json`
+- `.artifacts/iana-text/execution-timeline.json`
+
 ### CLI flags
 
 - `--mode strict|adaptive`
