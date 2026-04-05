@@ -1,0 +1,5 @@
+{
+  "name": "search-web-and-open-site",
+  "description": "Open public search page, submit query, pick relevant organic result, and navigate",
+  "params": ["searchUrl", "query", "targetKeyword", "targetDomain"]
+}
