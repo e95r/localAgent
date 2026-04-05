@@ -1,0 +1,5 @@
+{
+  "name": "download-file",
+  "description": "Open page and click downloadable link",
+  "params": ["startUrl", "targetKeyword"]
+}

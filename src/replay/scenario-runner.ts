@@ -13,6 +13,8 @@ export interface ScenarioRunnerOptions {
   maxRetriesPerStep?: number;
   debugArtifacts?: { enabled: boolean; outputDir: string };
   plannerAssistedResolver?: (ctx: { scenario: Scenario; stepIndex: number; pageUrl: string }) => Promise<string | null>;
+  approvalHandler?: (ctx: { scenario: Scenario; stepIndex: number; confidence: number; strategy: string; action: AgentAction; reason: string }) => Promise<{ approved: boolean; outcome: 'not-required' | 'approved' | 'rejected'; prompt?: string; decision?: unknown }>;
+  onStepComplete?: (summary: { stepId: string; actionType: string; target: string; result: 'success' | 'failure'; durationMs: number; plannerSource: string; approvalOutcome: 'not-required' | 'approved' | 'rejected' }) => void;
 }
 
 export class ScenarioRunner {
@@ -33,6 +35,7 @@ export class ScenarioRunner {
 
       while (!done && attempts <= maxRetries) {
         attempts += 1;
+        const started = Date.now();
         try {
           const state = await this.deps.observer.collect(this.deps.executor.getPage());
           const beforeUrl = state.url;
@@ -40,7 +43,9 @@ export class ScenarioRunner {
           if (step.action.actionType === 'open_url') {
             await this.deps.executor.openUrl(step.action.value ?? scenario.metadata.startUrl);
             const expectedCheck = await verifyPostStepExpectation(this.deps.executor, step.postActionExpectation);
-            results.push({ stepId: step.stepId, actionType: step.action.actionType, success: expectedCheck.passed, strategy: 'strict-selector', confidence: 1, reason: 'URL opened', expectedCheck });
+            const result: ReplayStepResult = { stepId: step.stepId, actionType: step.action.actionType, success: expectedCheck.passed, strategy: 'strict-selector', confidence: 1, reason: 'URL opened', expectedCheck, approvalOutcome: 'not-required' };
+            results.push(result);
+            options.onStepComplete?.({ stepId: step.stepId, actionType: step.action.actionType, target: step.action.value ?? '', result: result.success ? 'success' : 'failure', durationMs: Date.now() - started, plannerSource: 'replay', approvalOutcome: 'not-required' });
             done = true;
             continue;
           }
@@ -48,13 +53,17 @@ export class ScenarioRunner {
           if (step.action.actionType === 'wait_for') {
             if (step.action.value) await this.deps.executor.waitForElement(step.action.value);
             const expectedCheck = await verifyPostStepExpectation(this.deps.executor, step.postActionExpectation);
-            results.push({ stepId: step.stepId, actionType: step.action.actionType, success: expectedCheck.passed, strategy: 'strict-selector', confidence: 1, reason: 'Wait complete', expectedCheck });
+            const result: ReplayStepResult = { stepId: step.stepId, actionType: step.action.actionType, success: expectedCheck.passed, strategy: 'strict-selector', confidence: 1, reason: 'Wait complete', expectedCheck, approvalOutcome: 'not-required' };
+            results.push(result);
+            options.onStepComplete?.({ stepId: step.stepId, actionType: step.action.actionType, target: step.action.value ?? '', result: result.success ? 'success' : 'failure', durationMs: Date.now() - started, plannerSource: 'replay', approvalOutcome: 'not-required' });
             done = true;
             continue;
           }
 
           if (step.action.actionType === 'finish') {
-            results.push({ stepId: step.stepId, actionType: step.action.actionType, success: true, strategy: 'strict-selector', confidence: 1, reason: step.action.value ?? 'Finished' });
+            const result: ReplayStepResult = { stepId: step.stepId, actionType: step.action.actionType, success: true, strategy: 'strict-selector', confidence: 1, reason: step.action.value ?? 'Finished', approvalOutcome: 'not-required' };
+            results.push(result);
+            options.onStepComplete?.({ stepId: step.stepId, actionType: step.action.actionType, target: step.action.value ?? '', result: 'success', durationMs: Date.now() - started, plannerSource: 'replay', approvalOutcome: 'not-required' });
             done = true;
             continue;
           }
@@ -81,6 +90,7 @@ export class ScenarioRunner {
               confidence: resolution.confidence,
               reason: resolution.reason,
               askUserQuestion: 'Не удалось надёжно сопоставить элемент. Нужна помощь пользователя.',
+              approvalOutcome: 'not-required',
             };
             results.push(askResult);
             await this.persistArtifacts(options, scenario, results, askResult, resolution);
@@ -90,6 +100,39 @@ export class ScenarioRunner {
           const targetId = await resolution.locator.evaluate((el) => el.getAttribute('data-agent-id') ?? '');
           const mappedAction = this.toAgentAction(step.action.actionType, targetId, step.action.value, step.action.mode);
           this.deps.validator.validate(mappedAction, state);
+
+          let approvalOutcome: 'not-required' | 'approved' | 'rejected' = 'not-required';
+          let approvalPrompt: string | undefined;
+          let approvalDecision: unknown;
+          if (options.approvalHandler) {
+            const approval = await options.approvalHandler({
+              scenario,
+              stepIndex: index,
+              confidence: resolution.confidence,
+              strategy: resolution.strategy,
+              action: mappedAction,
+              reason: resolution.reason,
+            });
+            approvalOutcome = approval.outcome;
+            approvalPrompt = approval.prompt;
+            approvalDecision = approval.decision;
+            if (!approval.approved) {
+              const rejected: ReplayStepResult = {
+                stepId: step.stepId,
+                actionType: step.action.actionType,
+                success: false,
+                strategy: 'ask-user',
+                confidence: resolution.confidence,
+                reason: 'Action rejected by approval policy',
+                askUserQuestion: 'User rejected risky action',
+                approvalOutcome,
+              };
+              results.push(rejected);
+              options.onStepComplete?.({ stepId: step.stepId, actionType: step.action.actionType, target: step.target.text ?? step.target.strictSelectors[0] ?? '', result: 'failure', durationMs: Date.now() - started, plannerSource: 'replay', approvalOutcome });
+              await this.persistArtifacts(options, scenario, results, rejected, { resolution, approvalPrompt, approvalDecision });
+              return this.finish(options.mode, results);
+            }
+          }
 
           let extractedText = '';
           let downloadsCount = 0;
@@ -120,11 +163,14 @@ export class ScenarioRunner {
             reason: resolution.reason,
             extractedText,
             expectedCheck,
+            approvalOutcome,
+            plannerSource: 'replay',
           };
 
           if (!expectedCheck.passed && options.mode === 'adaptive' && attempts <= maxRetries) continue;
 
           results.push(stepResult);
+          options.onStepComplete?.({ stepId: step.stepId, actionType: step.action.actionType, target: step.target.text ?? step.target.strictSelectors[0] ?? '', result: stepResult.success ? 'success' : 'failure', durationMs: Date.now() - started, plannerSource: 'replay', approvalOutcome });
           if (!expectedCheck.passed) {
             await this.persistArtifacts(options, scenario, results, stepResult, resolution);
             return this.finish(options.mode, results);
@@ -140,6 +186,7 @@ export class ScenarioRunner {
               confidence: 0,
               reason: 'Replay execution failed',
               error: error instanceof Error ? error.message : String(error),
+              approvalOutcome: 'not-required',
             };
             results.push(failed);
             await this.persistArtifacts(options, scenario, results, failed);

@@ -71,6 +71,8 @@ export interface Scenario {
 export type ResolutionStrategy = 'strict-selector' | 'fallback-selector' | 'semantic-match' | 'planner-assisted' | 'ask-user';
 
 export interface ReplayStepResult {
+  approvalOutcome?: 'not-required' | 'approved' | 'rejected';
+  plannerSource?: string;
   stepId: string;
   actionType: ScenarioActionType;
   success: boolean;

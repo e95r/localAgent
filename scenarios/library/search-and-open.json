@@ -1,0 +1,5 @@
+{
+  "name": "search-and-open",
+  "description": "Open search page, fill query, submit search",
+  "params": ["startUrl", "query", "targetKeyword"]
+}

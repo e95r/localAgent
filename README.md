@@ -1,141 +1,112 @@
 # Browser Agent MVP (TypeScript + Playwright)
 
-Проект на **Iteration 5**: к существующей deterministic/hybrid архитектуре добавлены **Recorder + Scenario Replay**.
+Проект на **Iteration 6**: поверх ядра agent/replay добавлен прикладной UX-слой — CLI, библиотека reusable сценариев и approval mode.
 
-## Архитектура (Iteration 5)
+## Архитектура (Iteration 6)
 
-Базовые принципы Iteration 4 сохранены:
-- deterministic planner first,
-- LLM fallback second,
-- validator authoritative,
-- `ask_user` на небезопасных/неоднозначных шагах.
+Слои Iteration 5 сохранены (planner/validator/replay/recorder), и добавлены:
 
-Новые слои Iteration 5:
-- `ScenarioRecorder` — запись шагов сценария из наблюдаемого `PageState`.
-- `ScenarioStore` — сохранение/загрузка JSON-сценариев и schema validation.
-- `ReplayTargetResolver` — strict/fallback/semantic target resolution + confidence.
-- `ScenarioRunner` — последовательный replay в режимах `strict` и `adaptive`.
-- `post-step verification` — проверка expected outcome после каждого шага.
-- расширенные replay debug artifacts.
+- `src/cli/*` — CLI команды `record`, `replay`, `list-scenarios`, `show-scenario`, `run-library-scenario`.
+- `src/library/*` — реестр и typed builders reusable сценариев.
+- `src/approval/*` — policy + prompter abstractions (`console` и `fake`).
+- `src/config/runtime-config.ts` — typed runtime config + env overrides.
 
-> Основной test-suite остаётся локальным и воспроизводимым: без внешних сайтов и без обязательной реальной Ollama.
+Ключевой safety flow:
+1. action proposed,
+2. validator baseline,
+3. approval policy check,
+4. user approval (if required),
+5. execution,
+6. post-step verification.
 
-## Новые модули
+> Validator остаётся authoritative: если validator отклоняет action — approval prompt не показывается.
 
-- `src/scenario/types.ts`
-- `src/scenario/schema.ts`
-- `src/recorder/scenario-recorder.ts`
-- `src/storage/scenario-store.ts`
-- `src/replay/target-resolver.ts`
-- `src/replay/post-step-verifier.ts`
-- `src/replay/scenario-runner.ts`
+## CLI
 
-## Формат сценария (JSON)
-
-```json
-{
-  "schemaVersion": "1.0.0",
-  "id": "scenario-id",
-  "name": "Search and open docs",
-  "createdAt": "2026-04-05T00:00:00.000Z",
-  "updatedAt": "2026-04-05T00:00:00.000Z",
-  "metadata": {
-    "sourceUrl": "http://127.0.0.1:3000/replay-stable-page.html",
-    "startUrl": "http://127.0.0.1:3000/replay-stable-page.html",
-    "description": "optional"
-  },
-  "steps": [
-    {
-      "stepId": "step-1",
-      "action": { "actionType": "click" },
-      "pageUrlAtRecordTime": "http://127.0.0.1:3000/replay-stable-page.html",
-      "target": {
-        "strictSelectors": ["#search-btn"],
-        "fallbackSelectors": ["button[aria-label=\"Search\"]"],
-        "text": "Search",
-        "ariaLabel": "Search"
-      },
-      "postActionExpectation": { "textVisible": "Search complete" }
-    }
-  ]
-}
+```bash
+npm run cli -- record --name "Search docs" --url http://127.0.0.1:3000/replay-search-page.html
+npm run cli -- replay --file scenarios/search.json --mode strict --approval never
+npm run cli -- replay --file scenarios/search.json --mode adaptive --approval risky-only
+npm run cli -- list-scenarios
+npm run cli -- show-scenario --file scenarios/search.json
+npm run cli -- run-library-scenario download-file --mode adaptive --param startUrl=http://127.0.0.1:3000/replay-download-page.html --param targetKeyword=Download
 ```
 
-## Replay режимы
+### CLI flags
 
-### `strict`
-- использует только strict selectors;
-- без semantic guessing;
-- если target не найден — fail/ask_user.
+- `--mode strict|adaptive`
+- `--approval never|risky-only|always`
+- `--use-llm true|false`
+- `--scenario` / `--file`
+- `--param key=value`
+- `--artifacts-dir <path>`
+- `--json`
 
-### `adaptive`
-Порядок resolution:
-1. strict selector,
-2. fallback selectors,
-3. semantic snapshot matching,
-4. optional planner-assisted fallback,
-5. `ask_user` при низкой уверенности или ambiguity.
+## Scenario library
 
-## Recorder API
+Каталог: `scenarios/library/`.
 
-```ts
-const recorder = new ScenarioRecorder();
-recorder.startRecording('Search flow', startUrl);
-recorder.recordStep({ actionType: 'type', pageState, target, value: 'cats' });
-recorder.recordStep({ actionType: 'submit_search', pageState, target: submitBtn, mode: 'button' });
-const scenario = recorder.stopRecording();
-```
+Минимальные reusable сценарии:
+- `search-and-open`
+- `download-file`
+- `extract-main-text`
+- `open-latest-item`
 
-## Persistence API
+Typed builders:
+- `buildSearchAndOpenScenario(params)`
+- `buildDownloadFileScenario(params)`
+- `buildExtractMainTextScenario(params)`
+- `buildOpenLatestItemScenario(params)`
 
-```ts
-await saveScenarioToFile('scenarios/search.json', scenario);
-const loaded = await loadScenarioFromFile('scenarios/search.json');
-```
+## Approval mode
 
-## Replay API
+Режимы:
+- `approval=never`
+- `approval=risky-only`
+- `approval=always`
 
-```ts
-const runner = new ScenarioRunner({ executor, observer, validator });
-const replay = await runner.runScenario(loadedScenario, { mode: 'adaptive', maxRetriesPerStep: 1 });
-```
+Risk signals:
+- destructive keywords (`Delete`, `Remove`, `Publish`, `Pay`, ...),
+- low confidence,
+- planner-assisted resolution,
+- unknown/out-of-origin navigation.
 
-## Replay debug artifacts
+## Debug artifacts (расширение)
 
-При failure создаются:
-- `scenario.json`
-- `replay-mode.json`
-- `replay-step-results.json`
-- `target-resolution.json`
-- `replay-failure-reason.txt`
-- `expected-vs-actual.json`
+Для CLI/approval добавлены:
+- `approval-decision.json`
+- `approval-prompt.txt`
+- `cli-run-summary.json`
+- `library-scenario-metadata.json`
+- `execution-timeline.json`
 
-## Fixtures для replay
+## Config
 
-- `replay-stable-page.html`
-- `replay-shifted-page.html`
-- `replay-broken-page.html`
-- `replay-search-page.html`
-- `replay-download-page.html`
-- `replay-article-page.html`
+`RuntimeConfig`:
+- `defaultScenariosDir`
+- `defaultLibraryDir`
+- `defaultReplayMode`
+- `defaultApprovalMode`
+- `useLlmByDefault`
+- `artifactsDir`
+- `jsonOutputDefault`
 
-## Запуск тестов
+Env overrides:
+- `BROWSER_AGENT_SCENARIOS_DIR`
+- `BROWSER_AGENT_LIBRARY_DIR`
+- `BROWSER_AGENT_REPLAY_MODE`
+- `BROWSER_AGENT_APPROVAL_MODE`
+- `BROWSER_AGENT_USE_LLM`
+- `BROWSER_AGENT_ARTIFACTS_DIR`
+- `BROWSER_AGENT_JSON_OUTPUT`
 
-### Полный suite
+## Тесты
 
 ```bash
 npm run build
 npm run test
+npm run test:cli
+npm run test:library
 ```
 
-### Replay-focused
-
-```bash
-npm run test:replay
-```
-
-### Опциональные smoke tests с реальной Ollama
-
-```bash
-OLLAMA_SMOKE=1 OLLAMA_ENABLED=true npm run test:ollama
-```
+Основной suite остаётся локальным/воспроизводимым: fixtures + локальный test server, без обязательной реальной Ollama.
