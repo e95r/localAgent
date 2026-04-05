@@ -12,17 +12,10 @@ import { withPlannerConfig } from '../../src/planner/planner-config.js';
 import { RuleBasedPlanner } from '../../src/planner/rule-based-planner.js';
 import { DefaultActionValidator } from '../../src/validator/action-validator.js';
 import { createFixtureServer } from '../test-server.js';
+import { resolveClickableTargetId, resolveClickableTargetIdFromElements } from '../target-resolution.helpers.js';
 
 let baseUrl = '';
 let closeServer: (() => Promise<void>) | undefined;
-
-async function resolveTargetId(executor: PlaywrightBrowserExecutor, url: string, predicate: (el: any) => boolean): Promise<string> {
-  await executor.openUrl(url);
-  const state = await new DOMPageObserver().collect(executor.getPage());
-  const target = state.interactiveElements.find(predicate);
-  if (!target) throw new Error(`Could not resolve target on page ${url}`);
-  return target.id;
-}
 
 function pickTargetId(ctx: any, predicate: (el: any) => boolean): string {
   const target = ctx.candidateElements.find((el: any) => predicate(el));
@@ -117,7 +110,7 @@ describe('hybrid planner integration', () => {
   it('ambiguous download with maxSteps=1 navigates to /primary', async () => {
     const executor = new PlaywrightBrowserExecutor();
     const pageUrl = `${baseUrl}/ambiguous-download-choice.html`;
-    const targetId = await resolveTargetId(executor, pageUrl, (el) => String(el.text ?? '').includes('Primary download'));
+    const targetId = await resolveClickableTargetId(executor, new DOMPageObserver(), pageUrl, (el) => String(el.text ?? '').includes('Primary download'));
     const planner = makeHybrid(() =>
       JSON.stringify({
         selectedCapabilityName: 'DownloadCapability',
@@ -138,7 +131,7 @@ describe('hybrid planner integration', () => {
   it('semantic link choice with maxSteps=1 navigates to /install', async () => {
     const executor = new PlaywrightBrowserExecutor();
     const pageUrl = `${baseUrl}/semantic-link-choice.html`;
-    const targetId = await resolveTargetId(executor, pageUrl, (el) => String(el.text ?? '').includes('Installation guide'));
+    const targetId = await resolveClickableTargetId(executor, new DOMPageObserver(), pageUrl, (el) => String(el.text ?? '').includes('Installation guide'));
     const planner = makeHybrid(() =>
       JSON.stringify({
         selectedCapabilityName: 'OpenRelevantLinkCapability',
@@ -159,7 +152,7 @@ describe('hybrid planner integration', () => {
   it('latest list item with maxSteps=1 navigates to /item-2026-04', async () => {
     const executor = new PlaywrightBrowserExecutor();
     const pageUrl = `${baseUrl}/list-latest-item.html`;
-    const targetId = await resolveTargetId(executor, pageUrl, (el) => String(el.text ?? '').includes('2026-04 latest'));
+    const targetId = await resolveClickableTargetId(executor, new DOMPageObserver(), pageUrl, (el) => String(el.text ?? '').includes('2026-04 latest'));
     const planner = makeHybrid(() =>
       JSON.stringify({
         selectedCapabilityName: 'SelectListItemCapability',
@@ -174,6 +167,18 @@ describe('hybrid planner integration', () => {
     const agent = new BrowserAgent({ executor, observer: new DOMPageObserver(), planner, validator: new DefaultActionValidator() });
     await agent.run('open latest', pageUrl, 1);
     expect(await executor.getCurrentUrl()).toContain('/item-2026-04');
+    await executor.close();
+  });
+
+  it('click target resolution does not choose body/container when matching clickable link exists', async () => {
+    const executor = new PlaywrightBrowserExecutor();
+    const pageUrl = `${baseUrl}/semantic-link-choice.html`;
+    await executor.openUrl(pageUrl);
+    const state = await new DOMPageObserver().collect(executor.getPage());
+    const resolvedId = resolveClickableTargetIdFromElements(state.interactiveElements, (el) => String(el.text ?? '').includes('Installation guide'));
+    const resolvedElement = state.interactiveElements.find((el) => el.id === resolvedId);
+    expect(resolvedElement?.elementType).toBe('link');
+    expect(resolvedElement?.tag).toBe('a');
     await executor.close();
   });
 });
