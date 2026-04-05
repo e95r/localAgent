@@ -83,6 +83,8 @@ describe('BrowserAgent post-action wait orchestration', () => {
     executor.page = pageMock;
 
     await expect(executor.waitForPageSettled('http://example.test', 20)).resolves.toBeUndefined();
-    expect(pageMock.waitForLoadState).not.toHaveBeenCalled();
+    expect(pageMock.waitForLoadState).toHaveBeenCalledTimes(2);
+    expect(pageMock.waitForLoadState).toHaveBeenNthCalledWith(1, 'domcontentloaded', { timeout: 20 });
+    expect(pageMock.waitForLoadState).toHaveBeenNthCalledWith(2, 'load', { timeout: 20 });
   });
 });

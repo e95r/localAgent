@@ -46,7 +46,7 @@ export class PlaywrightBrowserExecutor implements BrowserExecutor {
     await this.page!.press(selector, 'Enter');
   }
 
-  async waitForPageSettled(previousUrl?: string, timeoutMs = 500): Promise<void> {
+  async waitForPageSettled(previousUrl?: string, timeoutMs = 2000): Promise<void> {
     const page = this.page!;
     const urlBeforeAction = previousUrl ?? page.url();
     let navigated = page.url() !== urlBeforeAction;
@@ -56,7 +56,9 @@ export class PlaywrightBrowserExecutor implements BrowserExecutor {
         await page.waitForURL((url) => url.toString() !== urlBeforeAction, { timeout: timeoutMs });
         navigated = true;
       } catch {
-        return;
+        // Some actions (form submits, SPA route changes) can complete slightly
+        // after the initial wait window; continue with load-state waits below so
+        // callers still get a best-effort settle point.
       }
     }
 
