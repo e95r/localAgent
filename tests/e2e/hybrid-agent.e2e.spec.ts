@@ -12,6 +12,7 @@ import { withPlannerConfig } from '../../src/planner/planner-config.js';
 import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { resolveClickableTargetId, resolveClickableTargetIdFromElements, resolveTargetId } from '../target-resolution.helpers.js';
 
 let baseUrl = '';
 let closeServer: (() => Promise<void>) | undefined;
@@ -25,14 +26,6 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => closeServer?.());
-
-async function resolveTargetId(executor: PlaywrightBrowserExecutor, url: string, predicate: (el: any) => boolean): Promise<string> {
-  await executor.openUrl(url);
-  const state = await observer.collect(executor.getPage());
-  const target = state.interactiveElements.find(predicate);
-  if (!target) throw new Error(`Could not resolve target on page ${url}`);
-  return target.id;
-}
 
 function makeHybridAgent(
   executor: PlaywrightBrowserExecutor,
@@ -62,7 +55,7 @@ test('rule-based planner solves simple download without llm', async () => {
 test('ambiguous download is resolved by llm fallback', async () => {
   const executor = new PlaywrightBrowserExecutor();
   const pageUrl = `${baseUrl}/ambiguous-download-choice.html`;
-  const resolvedTargetId = await resolveTargetId(executor, pageUrl, (el) => String(el.text ?? '').includes('Primary download'));
+  const resolvedTargetId = await resolveClickableTargetId(executor, observer, pageUrl, (el) => String(el.text ?? '').includes('Primary download'));
   const agent = makeHybridAgent(executor, () => {
     return JSON.stringify({ selectedCapabilityName: 'DownloadCapability', action: 'click', targetId: resolvedTargetId, confidence: 0.92, reason: 'primary', candidateTargets: [resolvedTargetId] });
   }, { ruleConfidenceThreshold: 1.1 });
@@ -74,7 +67,7 @@ test('ambiguous download is resolved by llm fallback', async () => {
 test('semantic relevant link is chosen by llm fallback', async () => {
   const executor = new PlaywrightBrowserExecutor();
   const pageUrl = `${baseUrl}/semantic-link-choice.html`;
-  const resolvedTargetId = await resolveTargetId(executor, pageUrl, (el) => String(el.text ?? '').includes('Installation guide'));
+  const resolvedTargetId = await resolveClickableTargetId(executor, observer, pageUrl, (el) => String(el.text ?? '').includes('Installation guide'));
   const agent = makeHybridAgent(executor, () => {
     return JSON.stringify({ selectedCapabilityName: 'OpenRelevantLinkCapability', action: 'click', targetId: resolvedTargetId, confidence: 0.88, reason: 'install intent', candidateTargets: [resolvedTargetId] });
   }, { ruleConfidenceThreshold: 1.1 });
@@ -86,7 +79,7 @@ test('semantic relevant link is chosen by llm fallback', async () => {
 test('main content is selected via llm fallback', async () => {
   const executor = new PlaywrightBrowserExecutor();
   const pageUrl = `${baseUrl}/multi-content-page.html`;
-  const resolvedTargetId = await resolveTargetId(executor, pageUrl, (el) => el.tag === 'main');
+  const resolvedTargetId = await resolveTargetId(executor, observer, pageUrl, (el) => el.tag === 'main');
   const agent = makeHybridAgent(executor, () => {
     return JSON.stringify({ selectedCapabilityName: 'ExtractMainContentCapability', action: 'extract_text', targetId: resolvedTargetId, confidence: 0.9, reason: 'main tag', candidateTargets: [resolvedTargetId] });
   }, { ruleConfidenceThreshold: 1.1 });
@@ -98,7 +91,7 @@ test('main content is selected via llm fallback', async () => {
 test('latest list item is selected via hybrid planning', async () => {
   const executor = new PlaywrightBrowserExecutor();
   const pageUrl = `${baseUrl}/list-latest-item.html`;
-  const resolvedTargetId = await resolveTargetId(executor, pageUrl, (el) => String(el.text ?? '').includes('2026-04 latest'));
+  const resolvedTargetId = await resolveClickableTargetId(executor, observer, pageUrl, (el) => String(el.text ?? '').includes('2026-04 latest'));
   const agent = makeHybridAgent(executor, () => {
     return JSON.stringify({ selectedCapabilityName: 'SelectListItemCapability', action: 'click', targetId: resolvedTargetId, confidence: 0.85, reason: 'latest', candidateTargets: [resolvedTargetId] });
   }, { ruleConfidenceThreshold: 1.1 });
@@ -133,5 +126,17 @@ test('when llm disabled deterministic path still works', async () => {
   const steps = await agent.run('search docs', `${baseUrl}/ambiguous-search-page.html`, 2);
   expect(steps.at(-1)?.action.type).toBe('ask_user');
   expect(steps.at(-1)?.action.plannerSource).toBe('rule-based');
+  await executor.close();
+});
+
+test('clickable target resolution prefers link over body with same text presence', async () => {
+  const executor = new PlaywrightBrowserExecutor();
+  const pageUrl = `${baseUrl}/ambiguous-download-choice.html`;
+  await executor.openUrl(pageUrl);
+  const state = await observer.collect(executor.getPage());
+  const resolvedTargetId = resolveClickableTargetIdFromElements(state.interactiveElements, (el) => String(el.text ?? '').includes('Primary download'));
+  const resolvedTarget = state.interactiveElements.find((el) => el.id === resolvedTargetId);
+  expect(resolvedTarget?.elementType).toBe('link');
+  expect(resolvedTarget?.tag).toBe('a');
   await executor.close();
 });
