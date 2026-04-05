@@ -1,11 +1,13 @@
-import type { LlmClient, LlmPlannerRequest } from './llm-client.js';
+import type { OllamaClientDeps } from './ollama-client.js';
+import { OllamaLlmClient } from './ollama-client.js';
+import type { OllamaConfig } from './ollama-config.js';
 
 /**
- * Placeholder adapter for local model engines (Ollama, llama.cpp, etc).
- * Keep out of default tests; tests should use FakeLlmClient/Stub behavior.
+ * Backward-compatible local client alias.
+ * Iteration 4 implementation is Ollama-based.
  */
-export class LocalLlmClient implements LlmClient {
-  async generateAction(_input: LlmPlannerRequest): Promise<string> {
-    throw new Error('LocalLlmClient is a placeholder. Provide engine integration in your environment.');
+export class LocalLlmClient extends OllamaLlmClient {
+  constructor(config: Partial<OllamaConfig> = {}, deps: OllamaClientDeps = {}) {
+    super(config, deps);
   }
 }

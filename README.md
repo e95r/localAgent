@@ -1,81 +1,102 @@
 # Browser Agent MVP (TypeScript + Playwright)
 
-Итерация 3: deterministic rule-based planning + HybridPlanner + LLM fallback (через абстракцию клиента), строгий JSON-контракт ответа и расширенные debug artifacts.
+Итерация 4: deterministic/hybrid архитектура сохранена, добавлен реальный `LocalLlmClient` (Ollama HTTP API) как opt-in путь.
 
-## Архитектура Iteration 3
+## Архитектура (Iteration 4)
 
-- `RuleBasedPlanner` — основной deterministic planner из Iteration 2.
-- `LlmPlanner` — формирует prompt, получает strict JSON и возвращает только структурированное действие.
-- `HybridPlanner` — orchestration слой:
-  1. пробует `RuleBasedPlanner`;
-  2. при низком confidence/ambiguity вызывает `LlmPlanner`;
-  3. если LLM тоже неуверен/невалиден — `ask_user`.
-- `ActionValidator` остаётся authoritative: отклоняет невозможные/небезопасные действия, включая ошибочные `targetId` от LLM.
-- `BrowserAgent` выполняет только валидные действия, хранит history/loop-protection и trace источника планирования (`plannerSource`).
+- `RuleBasedPlanner` — основной deterministic planner.
+- `HybridPlanner` — сначала deterministic, потом `LlmPlanner` fallback.
+- `ActionValidator` — authoritative guardrail на любые действия.
+- `LlmPlanner` + строгий JSON контракт — основной слой структурной валидации LLM-ответа.
+- `FakeLlmClient` остаётся базой для unit/integration/e2e.
+- `LocalLlmClient` теперь реализован через Ollama (`OllamaLlmClient`).
 
-## LLM abstraction
+> Базовый suite по-прежнему не зависит от локально запущенной модели.
 
-- `LlmClient` interface (`generateAction(input): Promise<string>`)
-- `FakeLlmClient` для unit/integration/e2e тестов (без реальной модели)
-- `LocalLlmClient` placeholder adapter
+## Новые модули Iteration 4
 
-Тесты **не зависят от реальной LLM**.
+- `src/llm/ollama-config.ts` — typed config + env parsing + validation.
+- `src/llm/ollama-response.ts` — extraction/sanitization (fenced JSON, лишний текст, partial JSON).
+- `src/llm/ollama-client.ts` — реальный HTTP клиент с timeout/retry/error mapping.
+- `src/llm/llm-client-factory.ts` — `createLlmClientFromConfig` / `createLlmClientFromEnv`.
+- `src/llm/local-llm-client.ts` — backward-compatible alias на Ollama клиент.
 
-## JSON response contract
+## Ollama config (env)
 
-LLM должна вернуть JSON-объект со структурой:
+Поддерживаются:
 
-- `selectedCapabilityName`
-- `action`
-- `targetId` (если требуется)
-- `text` (для `type`)
-- `confidence`
-- `reason`
-- `candidateTargets`
-- `warnings` (optional)
+- `OLLAMA_ENABLED` (`true/false`)
+- `OLLAMA_BASE_URL` (default `http://127.0.0.1:11434`)
+- `OLLAMA_MODEL` (default `qwen2.5:7b-instruct`)
+- `OLLAMA_TIMEOUT_MS` (default `12000`)
+- `OLLAMA_TEMPERATURE` (default `0`)
+- `OLLAMA_NUM_PREDICT` (default `320`)
+- `OLLAMA_RETRIES` (default `1`)
+- `OLLAMA_KEEP_ALIVE` (optional)
+- `OLLAMA_ENABLE_JSON_MODE` (default `true`)
 
-Парсер/валидатор (`parseLlmPlannerResponse`, `validateLlmPlannerResponse`) строго отклоняет:
-- invalid JSON
-- неизвестные action
-- обязательные поля, которых нет
-- некорректные значения
+### Recommended preset
 
-## Planner config
+Стартовый практичный preset:
 
-`src/planner/planner-config.ts`:
+- модель: `qwen2.5:7b-instruct` (или `qwen2.5:14b-instruct` при ресурсах)
+- `OLLAMA_TEMPERATURE=0`
+- `OLLAMA_ENABLE_JSON_MODE=true`
+- `OLLAMA_RETRIES=1`
 
-- `enableLlmFallback`
-- `ruleConfidenceThreshold`
-- `llmConfidenceThreshold`
-- `saveLlmArtifacts`
-- `maxPlannerRetries`
+## Подключение реального LLM клиента
 
-Есть разумные default значения и helper `withPlannerConfig`.
+```ts
+import { createLlmClientFromEnv, LlmPlanner, HybridPlanner, RuleBasedPlanner, withPlannerConfig } from 'browser-agent-mvp';
 
-## Debug artifacts
+const llmClient = createLlmClientFromEnv(process.env);
+const llmPlanner = new LlmPlanner(llmClient, [
+  'DownloadCapability',
+  'OpenRelevantLinkCapability',
+  'ExtractMainContentCapability',
+  'SelectListItemCapability',
+]);
 
-При ошибках/ambiguity/validator rejection сохраняются стандартные артефакты + LLM расширения:
+const planner = new HybridPlanner(
+  new RuleBasedPlanner(),
+  llmPlanner,
+  withPlannerConfig({ enableLlmFallback: true }),
+);
+```
 
-- `planner-source.json`
-- `llm-prompt.txt`
-- `llm-raw-response.txt`
-- `llm-parsed-response.json`
+Если `OLLAMA_ENABLED=false`, можно явно передать `FakeLlmClient` через factory fallback.
 
-## Fixtures
+## Debug artifacts (расширение)
 
-Дополнительные фикстуры Iteration 3:
+Когда LLM путь используется, добавляются:
 
-- `ambiguous-download-choice.html`
-- `semantic-link-choice.html`
-- `multi-content-page.html`
-- `list-latest-item.html`
-- `invalid-llm-target-page.html`
+- `llm-client-metadata.json` (model/baseUrl/timeout/retries/jsonMode/retryAttempts)
+- `llm-sanitized-response.txt`
+- `llm-parse-error.txt` (если есть)
+- + существующие `llm-prompt.txt`, `llm-raw-response.txt`, `llm-parsed-response.json`
 
-## Запуск
+## Запуск Ollama локально
+
+Пример:
 
 ```bash
-npm install
-npx playwright install chromium
+# 1) запустить ollama server
+ollama serve
+
+# 2) скачать модель
+ollama pull qwen2.5:7b-instruct
+
+# 3) включить клиент
+export OLLAMA_ENABLED=true
+export OLLAMA_MODEL=qwen2.5:7b-instruct
+export OLLAMA_BASE_URL=http://127.0.0.1:11434
+```
+
+## Тесты
+
+### Основной suite (без реального Ollama)
+
+```bash
 npm run build
 npm run test:unit
 npm run test:integration
@@ -83,4 +104,15 @@ npm run test:e2e
 npm run test
 ```
 
-> В unit/integration/e2e для LLM используется fake/stub client.
+### Опциональные smoke tests с реальным Ollama
+
+По умолчанию эти тесты пропускаются.
+
+```bash
+OLLAMA_SMOKE=1 OLLAMA_ENABLED=true npm run test:ollama
+```
+
+Smoke tests проверяют:
+- минимальный strict JSON path,
+- planner path с реальным ответом,
+- clean failure при неверной модели/недоступном сервере.

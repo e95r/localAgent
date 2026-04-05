@@ -7,8 +7,11 @@ export interface LlmPlannerTrace {
   invoked: boolean;
   prompt?: string;
   rawResponse?: string;
+  sanitizedRawResponse?: string;
   parsedResponse?: LlmPlannerOutput;
   error?: string;
+  clientMetadata?: Record<string, unknown>;
+  parseErrorReason?: string;
 }
 
 export class LlmPlanner implements Planner {
@@ -45,6 +48,15 @@ export class LlmPlanner implements Planner {
       });
       this.lastTrace.rawResponse = rawResponse;
 
+      const clientWithTrace = this.client as LlmClient & { getLastTrace?: () => Record<string, unknown> };
+      const clientTrace = clientWithTrace.getLastTrace?.();
+      if (clientTrace) {
+        this.lastTrace.clientMetadata = clientTrace;
+        if (typeof clientTrace.sanitizedRawResponse === 'string') {
+          this.lastTrace.sanitizedRawResponse = clientTrace.sanitizedRawResponse;
+        }
+      }
+
       const parsed = parseLlmPlannerResponse(rawResponse);
       this.lastTrace.parsedResponse = parsed;
 
@@ -63,6 +75,7 @@ export class LlmPlanner implements Planner {
       return mapLlmOutputToAction(parsed);
     } catch (error) {
       this.lastTrace.error = error instanceof Error ? error.message : String(error);
+      this.lastTrace.parseErrorReason = this.lastTrace.error;
       return {
         type: 'ask_user',
         question: 'Не удалось интерпретировать ответ планировщика. Уточните действие.',

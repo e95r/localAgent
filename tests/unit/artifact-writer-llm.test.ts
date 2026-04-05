@@ -19,12 +19,14 @@ describe('artifact writer llm extensions', () => {
       validatorResult: { ok: false },
       actionHistory: [],
       reason: 'ask',
-      llmArtifacts: { prompt: 'p', rawResponse: '{"a":1}', parsedResponse: { a: 1 } },
+      llmArtifacts: { prompt: 'p', rawResponse: '{"a":1}', sanitizedRawResponse: '{"a":1}', parsedResponse: { a: 1 }, clientMetadata: { model: 'qwen2.5:7b' }, parseErrorReason: 'none' },
     });
 
     const files = await readdir(artifactPath!);
     expect(files).toContain('llm-prompt.txt');
     expect(files).toContain('planner-source.json');
+    expect(files).toContain('llm-client-metadata.json');
+    expect(files).toContain('llm-sanitized-response.txt');
     await rm(dir, { recursive: true, force: true });
   });
 });

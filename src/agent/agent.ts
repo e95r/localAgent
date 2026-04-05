@@ -103,7 +103,10 @@ export class BrowserAgent {
         ? {
             prompt: llmTrace.prompt,
             rawResponse: llmTrace.rawResponse,
+            sanitizedRawResponse: llmTrace.sanitizedRawResponse,
             parsedResponse: llmTrace.parsedResponse,
+            clientMetadata: llmTrace.clientMetadata,
+            parseErrorReason: llmTrace.parseErrorReason,
           }
         : undefined,
     });
