@@ -12,7 +12,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<number> {
       return 0;
     }
     const result = await executeCliCommand(command, config);
-    if (!command.json) process.stdout.write(`${result.output}\n`);
+    if (result.output.trim().length > 0) process.stdout.write(`${result.output}\n`);
     return result.exitCode;
   } catch (error) {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);

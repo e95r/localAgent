@@ -15,7 +15,7 @@ const scenario: Scenario = {
 
 describe('scenario runner approval integration', () => {
   it('rejecting approval aborts safely', async () => {
-    const locator = {
+    const targetLocator = {
       count: async () => 1,
       evaluate: async () => 'target-1',
       click: async () => {},
@@ -25,7 +25,26 @@ describe('scenario runner approval integration', () => {
       press: async () => {},
       isEnabled: async () => true,
     };
-    const page = { locator: () => ({ first: () => locator }), waitForTimeout: async () => {} };
+    const emptyLocator = {
+      count: async () => 0,
+      first: () => emptyLocator,
+      nth: () => emptyLocator,
+      locator: () => emptyLocator,
+      isVisible: async () => false,
+      textContent: async () => '',
+      click: async () => {},
+      evaluate: async () => '',
+      fill: async () => {},
+      press: async () => {},
+      isEnabled: async () => false,
+    };
+    const page = {
+      locator: (selector: string) => {
+        if (selector === '#ok') return { first: () => targetLocator };
+        return emptyLocator;
+      },
+      waitForTimeout: async () => {},
+    };
     const runner = new ScenarioRunner({
       executor: { openUrl: async () => {}, getPage: () => page, waitForPageSettled: async () => {}, getCurrentUrl: async () => 'http://x' } as any,
       observer: { collect: async () => makeState([makeElement({ id: 'target-1' })]) } as any,

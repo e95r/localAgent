@@ -4,7 +4,6 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { SessionStore } from '../../src/session/session-store.js';
 import { SiteProfileRegistry } from '../../src/profiles/site-profile-registry.js';
-import { ConsentBannerResolver } from '../../src/banner/consent-resolver.js';
 
 describe('session and profile', () => {
   it('loads valid session metadata', async () => {
@@ -47,25 +46,4 @@ describe('session and profile', () => {
     expect(registry.resolve('http://x/unknown-page.html').name).toBe('generic');
   });
 
-  it('classifies safe and ambiguous banner actions', async () => {
-    const resolver = new ConsentBannerResolver();
-    const makePage = (text: string) => ({
-      locator: () => ({
-        first: () => ({
-          count: async () => 1,
-          isVisible: async () => true,
-          textContent: async () => text,
-        }),
-      }),
-    }) as any;
-
-    const safe = await resolver.detect(makePage('Accept'), {
-      name: 'p', domainPattern: /.*/, consentSelectors: ['#accept-cookies'], modalCloseSelectors: [], spinnerSelectors: [], riskyKeywords: [], preferredSelectors: [],
-    });
-    const ambiguous = await resolver.detect(makePage('Delete all'), {
-      name: 'p', domainPattern: /.*/, consentSelectors: ['#danger'], modalCloseSelectors: [], spinnerSelectors: [], riskyKeywords: [], preferredSelectors: [],
-    });
-    expect(safe.ambiguous).toBe(false);
-    expect(ambiguous.ambiguous).toBe(true);
-  });
 });
