@@ -12,7 +12,10 @@
     "test:all": "npm run test",
     "check": "npm run build && npm run test",
     "test:ollama": "vitest run tests/smoke",
-    "test:replay": "vitest run tests/unit/scenario-* tests/unit/replay-* tests/integration/scenario-replay.integration.test.ts && playwright test tests/e2e/scenario-replay.e2e.spec.ts"
+    "test:replay": "vitest run tests/unit/scenario-* tests/unit/replay-* tests/integration/scenario-replay.integration.test.ts && playwright test tests/e2e/scenario-replay.e2e.spec.ts",
+    "cli": "npm run build --silent && node dist/cli/index.js",
+    "test:cli": "vitest run tests/unit/cli*.test.ts tests/integration/cli*.test.ts",
+    "test:library": "vitest run tests/unit/library*.test.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.54.2",

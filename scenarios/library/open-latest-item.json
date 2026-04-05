@@ -1,0 +1,5 @@
+{
+  "name": "open-latest-item",
+  "description": "Open list and click latest item",
+  "params": ["startUrl", "targetKeyword"]
+}

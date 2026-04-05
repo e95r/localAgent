@@ -1,0 +1,5 @@
+{
+  "name": "extract-main-text",
+  "description": "Open article page and extract main text",
+  "params": ["startUrl", "outputPath"]
+}
