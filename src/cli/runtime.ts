@@ -19,11 +19,9 @@ import { formatReviewSummary } from '../review/review-summary.js';
 
 export interface CliRuntimeDeps {
   prompter?: ApprovalPrompter;
-  stdout?: Pick<typeof process.stdout, 'write'>;
 }
 
 export async function executeCliCommand(command: CliCommand, config: RuntimeConfig, deps: CliRuntimeDeps = {}): Promise<{ exitCode: number; output: string; summary?: CliRunSummary }> {
-  const out = deps.stdout ?? process.stdout;
   const store = new ScenarioStore();
   const library = new ScenarioLibrary(config.defaultLibraryDir);
 
@@ -136,7 +134,6 @@ export async function executeCliCommand(command: CliCommand, config: RuntimeConf
           `Approval requested: ${summary.approvalRequested}`,
           `Artifacts: ${summary.artifactsDir}`,
         ].join('\n');
-    out.write(`${output}\n`);
     return { exitCode: replay.success ? 0 : 2, output, summary };
   } finally {
     await executor.close();

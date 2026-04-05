@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { executeCliCommand } from '../../src/cli/runtime.js';
 import { DEFAULT_RUNTIME_CONFIG } from '../../src/config/runtime-config.js';
 import { createFixtureServer } from '../test-server.js';
@@ -12,6 +12,25 @@ import { ScenarioStore } from '../../src/storage/scenario-store.js';
 const config = { ...DEFAULT_RUNTIME_CONFIG };
 
 describe('cli integration', () => {
+
+  it('executeCliCommand does not write JSON output to stdout side effects', async () => {
+    const server = await createFixtureServer();
+    const tmp = await mkdtemp(path.join(os.tmpdir(), 'cli-stdout-clean-'));
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    try {
+      const scenario = buildSearchAndOpenScenario({ startUrl: `${server.baseUrl}/replay-search-page.html`, query: 'docs', targetKeyword: 'docs' });
+      const file = path.join(tmp, 'scenario.json');
+      await new ScenarioStore().saveScenarioToFile(file, scenario);
+      const result = await executeCliCommand({ command: 'replay', file, mode: 'strict', approval: 'never', artifactsDir: tmp, json: true, useLlm: false }, config);
+      expect(result.exitCode).toBe(0);
+      expect(result.output).toContain('"scenarioName"');
+      expect(stdoutSpy).not.toHaveBeenCalled();
+    } finally {
+      stdoutSpy.mockRestore();
+      await server.close();
+      await rm(tmp, { recursive: true, force: true });
+    }
+  });
   it('replay strict runs scenario successfully', async () => {
     const server = await createFixtureServer();
     const tmp = await mkdtemp(path.join(os.tmpdir(), 'cli-strict-'));
