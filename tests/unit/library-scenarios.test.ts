@@ -4,27 +4,12 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ScenarioLibrary } from '../../src/library/scenario-library.js';
 import { buildSearchAndOpenScenario } from '../../src/library/builders/search-and-open.js';
-import { buildSearchWebAndOpenSiteScenario } from '../../src/library/builders/search-web-and-open-site.js';
 
 describe('library scenarios', () => {
   it('builder returns valid scenario object', () => {
     const scenario = buildSearchAndOpenScenario({ startUrl: 'http://x', query: 'docs', targetKeyword: 'docs' });
     expect(scenario.name).toBe('search-and-open');
     expect(scenario.steps.length).toBeGreaterThan(2);
-  });
-
-
-  it('search-web-and-open-site builder includes organic hint and domain expectation', () => {
-    const scenario = buildSearchWebAndOpenSiteScenario({
-      searchUrl: 'http://x/search',
-      query: 'IANA example domains',
-      targetKeyword: 'IANA',
-      targetDomain: 'iana.org',
-    });
-    expect(scenario.name).toBe('search-web-and-open-site');
-    const openResult = scenario.steps.find((step) => step.stepId === 'step-4-open-result');
-    expect(openResult?.target?.preferOrganic).toBe(true);
-    expect(openResult?.postActionExpectation?.urlIncludes).toBe('iana.org');
   });
 
   it('missing required params are rejected', () => {

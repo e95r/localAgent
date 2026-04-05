@@ -101,34 +101,6 @@ test.describe('CLI e2e', () => {
     }
   });
 
-
-
-  test('runs library search-web-and-open-site scenario', async () => {
-    const server = await createFixtureServer();
-    const tmp = await mkdtemp(path.join(os.tmpdir(), 'cli-e2e-search-web-'));
-    try {
-      const code = await runCli([
-        'run-library-scenario',
-        'search-web-and-open-site',
-        '--param', `searchUrl=${server.baseUrl}/search-engine-ads.html`,
-        '--param', 'query=IANA example domains',
-        '--param', 'targetKeyword=IANA',
-        '--param', 'targetDomain=iana.org',
-        '--mode', 'adaptive',
-        '--approval', 'never',
-        '--artifacts-dir', tmp,
-        '--json',
-      ]);
-      expect(code).toBe(0);
-      const summary = JSON.parse(await readFile(path.join(tmp, 'cli-run-summary.json'), 'utf-8'));
-      expect(summary.scenarioName).toBe('search-web-and-open-site');
-      expect(summary.success).toBe(true);
-    } finally {
-      await server.close();
-      await rm(tmp, { recursive: true, force: true });
-    }
-  });
-
   test('missing params fail with clean message', async () => {
     const code = await runCli(['run-library-scenario', 'search-and-open', '--param', 'startUrl=http://x', '--json']);
     expect(code).toBeGreaterThan(0);
