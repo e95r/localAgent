@@ -181,4 +181,38 @@ describe('hybrid planner integration', () => {
     expect(resolvedElement?.tag).toBe('a');
     await executor.close();
   });
+
+  it('click target resolution for no-id anchor prefers correct exact target and navigates correctly', async () => {
+    const executor = new PlaywrightBrowserExecutor();
+    const pageUrl = `${baseUrl}/no-id-links.html`;
+    const targetId = await resolveClickableTargetId(executor, new DOMPageObserver(), pageUrl, (el) => String(el.text ?? '').includes('Guide middle target'));
+    const planner = makeHybrid(() =>
+      JSON.stringify({
+        selectedCapabilityName: 'OpenRelevantLinkCapability',
+        action: 'click',
+        targetId,
+        confidence: 0.94,
+        reason: 'middle link exact match',
+        candidateTargets: [targetId],
+      }),
+    );
+
+    const agent = new BrowserAgent({ executor, observer: new DOMPageObserver(), planner, validator: new DefaultActionValidator() });
+    await agent.run('open middle guide', pageUrl, 1);
+    expect(await executor.getCurrentUrl()).toContain('/guide-middle');
+    await executor.close();
+  });
+
+  it('body/container presence in candidates does not break no-id clickable mapping', async () => {
+    const executor = new PlaywrightBrowserExecutor();
+    const pageUrl = `${baseUrl}/no-id-links.html`;
+    await executor.openUrl(pageUrl);
+    const state = await new DOMPageObserver().collect(executor.getPage());
+    const resolvedId = resolveClickableTargetIdFromElements(state.interactiveElements, (el) => String(el.text ?? '').includes('Guide end target'));
+    const resolvedElement = state.interactiveElements.find((el) => el.id === resolvedId);
+    expect(resolvedElement?.elementType).toBe('link');
+    expect(resolvedElement?.tag).toBe('a');
+    expect(resolvedElement?.selectorHint).toContain('data-agent-id');
+    await executor.close();
+  });
 });

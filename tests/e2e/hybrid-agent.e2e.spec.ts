@@ -140,3 +140,27 @@ test('clickable target resolution prefers link over body with same text presence
   expect(resolvedTarget?.tag).toBe('a');
   await executor.close();
 });
+
+test('no-id middle link click navigates to correct href', async () => {
+  const executor = new PlaywrightBrowserExecutor();
+  const pageUrl = `${baseUrl}/no-id-links.html`;
+  const resolvedTargetId = await resolveClickableTargetId(executor, observer, pageUrl, (el) => String(el.text ?? '').includes('Guide middle target'));
+  const agent = makeHybridAgent(executor, () => {
+    return JSON.stringify({ selectedCapabilityName: 'OpenRelevantLinkCapability', action: 'click', targetId: resolvedTargetId, confidence: 0.91, reason: 'middle target', candidateTargets: [resolvedTargetId] });
+  }, { ruleConfidenceThreshold: 1.1 });
+  await agent.run('open middle guide', pageUrl, 1);
+  expect(await executor.getCurrentUrl()).toContain('/guide-middle');
+  await executor.close();
+});
+
+test('no-id last link click navigates correctly without timeout', async () => {
+  const executor = new PlaywrightBrowserExecutor();
+  const pageUrl = `${baseUrl}/no-id-links.html`;
+  const resolvedTargetId = await resolveClickableTargetId(executor, observer, pageUrl, (el) => String(el.text ?? '').includes('Guide end target'));
+  const agent = makeHybridAgent(executor, () => {
+    return JSON.stringify({ selectedCapabilityName: 'OpenRelevantLinkCapability', action: 'click', targetId: resolvedTargetId, confidence: 0.9, reason: 'end target', candidateTargets: [resolvedTargetId] });
+  }, { ruleConfidenceThreshold: 1.1 });
+  await agent.run('open last guide', pageUrl, 1);
+  expect(await executor.getCurrentUrl()).toContain('/guide-end');
+  await executor.close();
+});

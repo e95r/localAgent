@@ -7,6 +7,14 @@ export interface PageObserver {
   collect(page: Page): Promise<PageState>;
 }
 
+export function buildAgentElementId(index: number): string {
+  return `el-${index}`;
+}
+
+export function buildSelectorHint(domId: string | null, agentId: string): string {
+  return domId ? `#${domId}` : `[data-agent-id="${agentId}"]`;
+}
+
 export class DOMPageObserver implements PageObserver {
   async collect(page: Page): Promise<PageState> {
     const url = page.url();
@@ -31,7 +39,8 @@ export class DOMPageObserver implements PageObserver {
         const elementType: 'button' | 'link' | 'input' | 'textarea' | 'dialog' | 'modal' | 'container' =
           isOverlay ? 'modal' : clickable ? (tag === 'a' || role === 'link' ? 'link' : 'button') : isInput ? (tag === 'textarea' ? 'textarea' : 'input') : 'container';
         const id = `el-${index}`;
-        const selectorHint = element.id ? `#${element.id}` : `${tag}:nth-of-type(${index + 1})`;
+        element.setAttribute('data-agent-id', id);
+        const selectorHint = element.id ? `#${element.id}` : `[data-agent-id="${id}"]`;
         const text = (element.innerText || (el as HTMLInputElement).value || '').replace(/\s+/g, ' ').trim();
         const nearest = element.closest('section,article,main,form,div')?.textContent?.replace(/\s+/g, ' ').trim().slice(0, 120) ?? '';
         return {
