@@ -10,7 +10,8 @@
     "test:integration": "vitest run tests/integration",
     "test:e2e": "playwright test",
     "test:all": "npm run test",
-    "check": "npm run build && npm run test"
+    "check": "npm run build && npm run test",
+    "test:ollama": "vitest run tests/smoke"
   },
   "devDependencies": {
     "@playwright/test": "^1.54.2",

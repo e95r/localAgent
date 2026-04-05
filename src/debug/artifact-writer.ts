@@ -12,7 +12,10 @@ export interface ArtifactConfig {
 export interface LlmArtifactPayload {
   prompt?: string;
   rawResponse?: string;
+  sanitizedRawResponse?: string;
   parsedResponse?: unknown;
+  clientMetadata?: Record<string, unknown>;
+  parseErrorReason?: string;
 }
 
 export async function writeDebugArtifacts(params: {
@@ -45,6 +48,9 @@ export async function writeDebugArtifacts(params: {
     if (params.llmArtifacts.parsedResponse !== undefined) {
       await writeFile(path.join(dir, 'llm-parsed-response.json'), JSON.stringify(params.llmArtifacts.parsedResponse, null, 2), 'utf-8');
     }
+    if (params.llmArtifacts.sanitizedRawResponse) await writeFile(path.join(dir, 'llm-sanitized-response.txt'), params.llmArtifacts.sanitizedRawResponse, 'utf-8');
+    if (params.llmArtifacts.clientMetadata) await writeFile(path.join(dir, 'llm-client-metadata.json'), JSON.stringify(params.llmArtifacts.clientMetadata, null, 2), 'utf-8');
+    if (params.llmArtifacts.parseErrorReason) await writeFile(path.join(dir, 'llm-parse-error.txt'), params.llmArtifacts.parseErrorReason, 'utf-8');
   }
 
   return dir;
