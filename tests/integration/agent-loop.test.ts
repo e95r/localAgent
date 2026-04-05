@@ -8,6 +8,7 @@ import { DOMPageObserver } from '../../src/observer/page-observer.js';
 import { RuleBasedPlanner } from '../../src/planner/rule-based-planner.js';
 import { DefaultActionValidator } from '../../src/validator/action-validator.js';
 import { createFixtureServer } from '../test-server.js';
+import type { AgentAction, Planner } from '../../src/types/actions.js';
 
 let baseUrl = '';
 let closeServer: (() => Promise<void>) | undefined;
@@ -61,5 +62,38 @@ describe('planner + validator + executor + loop', () => {
     expect(folders.length).toBeGreaterThan(0);
     await executor.close();
     await rm(dir, { recursive: true, force: true });
+  });
+
+  it('submit_search with one-step navigation path correctly settles page', async () => {
+    const executor = new PlaywrightBrowserExecutor();
+    const planner: Planner = {
+      decide: ({ pageState }) => {
+        const target = pageState.interactiveElements.find((el) => el.selectorHint === '#go-btn');
+        if (!target) throw new Error('submit button not found');
+        const action: AgentAction = { type: 'submit_search', mode: 'button', targetId: target.id, plannerSource: 'rule-based' };
+        return action;
+      },
+    };
+    const agent = new BrowserAgent({ executor, observer: new DOMPageObserver(), planner, validator: new DefaultActionValidator() });
+    await agent.run('go', `${baseUrl}/submit-search-navigation.html`, 1);
+    expect(await executor.getCurrentUrl()).toContain('/install');
+    await executor.close();
+  });
+
+  it('non-navigation click does not break loop', async () => {
+    const executor = new PlaywrightBrowserExecutor();
+    const planner: Planner = {
+      decide: ({ pageState }) => {
+        const target = pageState.interactiveElements.find((el) => String(el.text ?? '').includes('Open modal'));
+        if (!target) throw new Error('open modal button not found');
+        const action: AgentAction = { type: 'click', targetId: target.id, plannerSource: 'rule-based' };
+        return action;
+      },
+    };
+    const agent = new BrowserAgent({ executor, observer: new DOMPageObserver(), planner, validator: new DefaultActionValidator() });
+    const steps = await agent.run('open modal', `${baseUrl}/modal.html`, 1);
+    expect(steps).toHaveLength(1);
+    expect(await executor.getCurrentUrl()).toContain('/modal.html');
+    await executor.close();
   });
 });

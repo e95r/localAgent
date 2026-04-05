@@ -5,6 +5,7 @@ export interface BrowserExecutor {
   clickElement(selector: string | Locator): Promise<void>;
   typeText(selector: string, text: string): Promise<void>;
   pressEnter(selector: string): Promise<void>;
+  waitForPageSettled(previousUrl?: string, timeoutMs?: number): Promise<void>;
   extractText(selector: string): Promise<string>;
   getPageTitle(): Promise<string>;
   getCurrentUrl(): Promise<string>;
@@ -31,15 +32,8 @@ export class PlaywrightBrowserExecutor implements BrowserExecutor {
   }
 
   async clickElement(selector: string | Locator): Promise<void> {
-    const page = this.page!;
-    const previousUrl = page.url();
-
-    if (typeof selector === 'string') await page.click(selector);
+    if (typeof selector === 'string') await this.page!.click(selector);
     else await selector.click();
-
-    if (page.url() === previousUrl) {
-      await page.waitForURL((url) => url.toString() !== previousUrl, { timeout: 1200 }).catch(() => undefined);
-    }
   }
 
   async typeText(selector: string, text: string): Promise<void> {
@@ -48,6 +42,24 @@ export class PlaywrightBrowserExecutor implements BrowserExecutor {
 
   async pressEnter(selector: string): Promise<void> {
     await this.page!.press(selector, 'Enter');
+  }
+
+  async waitForPageSettled(previousUrl?: string, timeoutMs = 500): Promise<void> {
+    const page = this.page!;
+    const urlBeforeAction = previousUrl ?? page.url();
+    let navigated = page.url() !== urlBeforeAction;
+
+    if (!navigated) {
+      try {
+        await page.waitForURL((url) => url.toString() !== urlBeforeAction, { timeout: timeoutMs });
+        navigated = true;
+      } catch {
+        return;
+      }
+    }
+
+    await page.waitForLoadState('domcontentloaded', { timeout: timeoutMs }).catch(() => undefined);
+    await page.waitForLoadState('load', { timeout: timeoutMs }).catch(() => undefined);
   }
 
   async extractText(selector: string): Promise<string> {
