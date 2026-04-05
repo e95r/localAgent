@@ -225,6 +225,23 @@ it('strict replay fails when exact selector is gone', async () => {
     await executor.close();
   });
 
+  it('library search-web-and-open-site remains stable when resolved locator has no data-agent-id', async () => {
+    const executor = new PlaywrightBrowserExecutor();
+    const observer = new DOMPageObserver();
+    const scenario = buildSearchWebAndOpenSiteScenario({
+      searchUrl: `${baseUrl}/search-engine-ads-no-id.html`,
+      query: 'IANA example domains',
+      targetKeyword: 'IANA',
+      targetDomain: 'iana.org',
+    });
+
+    const runner = new ScenarioRunner({ executor, observer, validator: new DefaultActionValidator() });
+    const result = await runner.runScenario(scenario, { mode: 'adaptive' });
+    expect(result.success).toBeTruthy();
+    expect(result.steps.find((step) => step.stepId === 'step-4-open-result')?.reason).toContain('organic');
+    await executor.close();
+  });
+
   it('library search-web-and-open-site fails safely when no confident result exists', async () => {
     const executor = new PlaywrightBrowserExecutor();
     const observer = new DOMPageObserver();

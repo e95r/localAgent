@@ -5,6 +5,7 @@ import type { PageObserver } from '../observer/page-observer.js';
 import type { ActionValidator } from '../validator/action-validator.js';
 import type { AgentAction } from '../types/actions.js';
 import type { ReplayMode, ReplayResult, ReplayStepResult, Scenario } from '../scenario/types.js';
+import type { RecordedTargetSnapshot } from '../scenario/types.js';
 import { ReplayTargetResolver } from './target-resolver.js';
 import { verifyPostStepExpectation } from './post-step-verifier.js';
 import type { WaitStrategy } from '../readiness/wait-strategy.js';
@@ -14,6 +15,7 @@ import { GENERIC_PROFILE } from '../profiles/site-profile.js';
 import { ConsentBannerResolver } from '../banner/consent-resolver.js';
 import { ReplayRecoveryPolicy } from '../recovery/retry-policy.js';
 import { StateTransitionTracker } from '../readiness/state-transition-tracker.js';
+import type { InteractiveElement, PageState } from '../types/page-state.js';
 
 export interface ScenarioRunnerOptions {
   mode: ReplayMode;
@@ -198,8 +200,27 @@ export class ScenarioRunner {
           }
 
           const targetId = await resolution.locator.evaluate((el) => el.getAttribute('data-agent-id') ?? '');
-          const mappedAction = this.toAgentAction(step.action.actionType, targetId, step.action.value, step.action.mode);
-          this.deps.validator.validate(mappedAction, state);
+          const validationState = targetId.trim() ? state : await this.deps.observer.collect(this.deps.executor.getPage());
+          const resolvedElementMetadata = targetId.trim()
+            ? null
+            : await resolution.locator.evaluate((el) => {
+              const element = el as HTMLElement;
+              const anchor = el as HTMLAnchorElement;
+              return {
+                tag: element.tagName.toLowerCase(),
+                text: (element.innerText ?? element.textContent ?? '').replace(/\s+/g, ' ').trim(),
+                href: anchor.getAttribute('href') ?? anchor.href ?? '',
+                ariaLabel: element.getAttribute('aria-label') ?? '',
+                placeholder: (el as HTMLInputElement).placeholder ?? '',
+              };
+            });
+          const validatedTargetId = targetId.trim() || this.resolveTargetIdFromState(step.target, validationState, resolvedElementMetadata);
+          const mappedAction = this.toAgentAction(step.action.actionType, validatedTargetId, step.action.value, step.action.mode);
+          if (validatedTargetId) {
+            this.deps.validator.validate(mappedAction, validationState);
+          } else {
+            tracker.log('validation-skip', { stepId: step.stepId, reason: 'resolved-locator-without-agent-id' });
+          }
 
           let approvalOutcome: 'not-required' | 'approved' | 'rejected' = 'not-required';
           let approvalPrompt: string | undefined;
@@ -312,6 +333,46 @@ export class ScenarioRunner {
     if (type === 'extract_text') return { type: 'extract_text', targetId, plannerSource: 'rule-based' };
     if (type === 'submit_search') return { type: 'submit_search', targetId, mode: mode ?? 'enter', plannerSource: 'rule-based' };
     return { type: 'ask_user', question: 'unsupported', plannerSource: 'hybrid-ask-user' };
+  }
+
+  private resolveTargetIdFromState(
+    target: RecordedTargetSnapshot,
+    state: PageState,
+    resolvedElement?: { tag: string; text: string; href: string; ariaLabel: string; placeholder: string } | null,
+  ): string {
+    const preferredSelectors = new Set([...target.strictSelectors, ...target.fallbackSelectors].filter(Boolean));
+    const keyword = (target.targetKeyword ?? target.text ?? '').toLowerCase().trim();
+    const domain = (target.targetDomain ?? target.href ?? '').toLowerCase().trim();
+
+    const scored = state.interactiveElements
+      .map((element) => ({ element, score: this.scoreValidationCandidate(element, preferredSelectors, keyword, domain, resolvedElement) }))
+      .filter((candidate) => candidate.score > 0)
+      .sort((a, b) => b.score - a.score);
+
+    if (!scored.length) return '';
+    if (scored[1] && scored[0].score === scored[1].score) return '';
+    return scored[0].element.id;
+  }
+
+  private scoreValidationCandidate(
+    element: InteractiveElement,
+    preferredSelectors: Set<string>,
+    keyword: string,
+    domain: string,
+    resolvedElement?: { tag: string; text: string; href: string; ariaLabel: string; placeholder: string } | null,
+  ): number {
+    let score = 0;
+    if (preferredSelectors.has(element.selectorHint)) score += 6;
+    if (keyword && element.text.toLowerCase().includes(keyword)) score += 4;
+    if (domain && (element.href ?? '').toLowerCase().includes(domain)) score += 5;
+    if (resolvedElement) {
+      if (resolvedElement.tag && element.tag === resolvedElement.tag) score += 2;
+      if (resolvedElement.text && element.text === resolvedElement.text) score += 3;
+      if (resolvedElement.href && (element.href ?? '') === resolvedElement.href) score += 4;
+      if (resolvedElement.ariaLabel && (element.ariaLabel ?? '') === resolvedElement.ariaLabel) score += 1;
+      if (resolvedElement.placeholder && (element.placeholder ?? '') === resolvedElement.placeholder) score += 1;
+    }
+    return score;
   }
 
   private finish(mode: ReplayMode, steps: ReplayStepResult[]): ReplayResult {
