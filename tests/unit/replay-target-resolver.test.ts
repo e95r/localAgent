@@ -39,8 +39,8 @@ describe('replay target resolver', () => {
     const resolver = new ReplayTargetResolver();
 
     const candidates = [
-      { href: '/result-sponsored-iana.org.html', text: 'IANA offer', sponsored: true },
-      { href: '/result-iana.org.html', text: 'IANA - Example Domains', sponsored: false },
+      { href: '/result-sponsored-iana.org.html', text: 'Other text', sponsored: true },
+      { href: '/organic-result.html', text: 'IANA', sponsored: false },
     ];
 
     const page = {
@@ -69,6 +69,79 @@ describe('replay target resolver', () => {
 
     expect(result.strategy).toBe('semantic-match');
     expect(result.reason).toContain('Ranked organic');
+    expect(result.reason).toContain('href=');
+  });
+
+  it('adaptive resolver prefers organic domain match in top-score tie with sponsored', async () => {
+    const resolver = new ReplayTargetResolver();
+
+    const candidates = [
+      { href: '/sponsored-iana.org-iana.html', text: 'IANA', sponsored: true },
+      { href: '/organic-iana.org-iana.html', text: 'IANA', sponsored: false },
+    ];
+
+    const page = {
+      locator: (selector: string) => {
+        if (selector === 'a[href]') {
+          return {
+            count: async () => candidates.length,
+            nth: (index: number) => ({
+              evaluate: async () => candidates[index],
+            }),
+            first: () => ({ count: async () => 0 }),
+          };
+        }
+        return { first: () => ({ count: async () => 0 }), elementHandles: async () => [] };
+      },
+    } as any;
+
+    const result = await resolver.resolve(page, {
+      strictSelectors: ['#missing'],
+      fallbackSelectors: [],
+      preferOrganic: true,
+      targetKeyword: 'iana',
+      targetDomain: 'iana.org',
+      text: 'IANA',
+    }, 'adaptive');
+
+    expect(result.strategy).toBe('semantic-match');
+    expect(result.reason).toContain('sponsored=false');
+  });
+
+  it('adaptive resolver asks user for top-score tie between two organic without domain signal', async () => {
+    const resolver = new ReplayTargetResolver();
+
+    const candidates = [
+      { href: '/organic-result-a.html', text: 'IANA', sponsored: false },
+      { href: '/organic-result-b.html', text: 'IANA', sponsored: false },
+    ];
+
+    const page = {
+      locator: (selector: string) => {
+        if (selector === 'a[href]') {
+          return {
+            count: async () => candidates.length,
+            nth: (index: number) => ({
+              evaluate: async () => candidates[index],
+            }),
+            first: () => ({ count: async () => 0 }),
+          };
+        }
+        return { first: () => ({ count: async () => 0 }), elementHandles: async () => [] };
+      },
+    } as any;
+
+    const result = await resolver.resolve(page, {
+      strictSelectors: ['#missing'],
+      fallbackSelectors: [],
+      preferOrganic: true,
+      targetKeyword: 'iana',
+      targetDomain: 'iana.org',
+      text: 'IANA',
+    }, 'adaptive');
+
+    expect(result.strategy).toBe('ask-user');
+    expect(result.reason).toContain('Ambiguous top-ranked');
   });
 
   it('adaptive resolver asks user when ranked search has no confident match', async () => {
@@ -105,5 +178,6 @@ describe('replay target resolver', () => {
 
     expect(result.strategy).toBe('ask-user');
     expect(result.reason).toContain('No confident');
+    expect(result.reason).toContain('href=');
   });
 });
