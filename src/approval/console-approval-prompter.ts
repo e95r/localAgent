@@ -3,10 +3,19 @@ import { stdin as input, stdout as output } from 'node:process';
 import type { ApprovalPrompter, ApprovalRequest, ApprovalResponse } from './approval-prompter.js';
 
 export class ConsoleApprovalPrompter implements ApprovalPrompter {
+  constructor(
+    private readonly streams: {
+      input?: NodeJS.ReadableStream;
+      output?: NodeJS.WritableStream;
+    } = {},
+  ) {}
+
   async prompt(request: ApprovalRequest): Promise<ApprovalResponse> {
-    const rl = readline.createInterface({ input, output });
+    const promptInput = this.streams.input ?? input;
+    const promptOutput = this.streams.output ?? output;
+    const rl = readline.createInterface({ input: promptInput, output: promptOutput });
     try {
-      output.write([
+      promptOutput.write([
         '\nApproval required:',
         `- Step: ${request.stepId}`,
         `- Action: ${request.actionType}`,
@@ -22,6 +31,7 @@ export class ConsoleApprovalPrompter implements ApprovalPrompter {
       return { approved, answer: approved ? 'approved' : 'rejected', note: answer };
     } finally {
       rl.close();
+      if (promptInput === input) input.pause();
     }
   }
 }
