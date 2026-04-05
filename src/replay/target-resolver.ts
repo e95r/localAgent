@@ -11,11 +11,6 @@ export interface ReplayResolutionResult {
 
 export class ReplayTargetResolver {
   async resolve(page: Page, target: RecordedTargetSnapshot, mode: ReplayMode): Promise<ReplayResolutionResult> {
-    if (mode === 'adaptive' && target.preferOrganic) {
-      const ranked = await this.resolveRankedSearchResult(page, target);
-      if (ranked) return ranked;
-    }
-
     const strict = await this.resolveStrict(page, target);
     if (strict.locator) return strict;
     if (mode === 'strict') return strict;
@@ -42,77 +37,6 @@ export class ReplayTargetResolver {
       if (await locator.count()) return { locator, confidence: 0.8, reason: `Fallback selector matched: ${selector}`, strategy: 'fallback-selector' };
     }
     return { confidence: 0, reason: 'Fallback selectors did not match', strategy: 'ask-user' };
-  }
-
-  private async resolveRankedSearchResult(page: Page, target: RecordedTargetSnapshot): Promise<ReplayResolutionResult | null> {
-    if (!target.preferOrganic) return null;
-
-    const links = page.locator('a[href]');
-    const count = await links.count();
-    if (!count) return null;
-
-    const keyword = (target.targetKeyword ?? target.text ?? '').toLowerCase().trim();
-    const domain = (target.targetDomain ?? target.href ?? '').toLowerCase().trim();
-
-    const scored: Array<{ index: number; score: number; href: string; text: string; sponsored: boolean }> = [];
-
-    for (let index = 0; index < count; index += 1) {
-      const locator = links.nth(index);
-      const candidate = await locator.evaluate((el) => {
-        const anchor = el as HTMLAnchorElement;
-        const text = (anchor.innerText ?? anchor.textContent ?? '').replace(/\s+/g, ' ').trim();
-        const href = anchor.getAttribute('href') ?? anchor.href ?? '';
-        const context = (anchor.closest('article,li,section,div')?.textContent ?? '').replace(/\s+/g, ' ').toLowerCase();
-        const attrs = `${anchor.getAttribute('aria-label') ?? ''} ${anchor.className ?? ''} ${anchor.id ?? ''}`.toLowerCase();
-        const sponsored =
-          anchor.closest('[data-sponsored],[data-ad],.sponsored,.ad-result,[aria-label*="sponsored" i]') !== null ||
-          /\bsponsored\b/.test(context) ||
-          /\bad\b/.test(attrs);
-        return { text, href, sponsored };
-      });
-
-      const textLower = candidate.text.toLowerCase();
-      const hrefLower = candidate.href.toLowerCase();
-      let score = 0;
-      if (domain && hrefLower.includes(domain)) score += 8;
-      if (keyword && hrefLower.includes(keyword)) score += 4;
-      if (keyword && textLower.includes(keyword)) score += 5;
-      if (target.text && textLower.includes(target.text.toLowerCase())) score += 2;
-      if (candidate.sponsored) score -= 12;
-
-      scored.push({ index, score, href: candidate.href, text: candidate.text, sponsored: candidate.sponsored });
-    }
-
-    scored.sort((a, b) => b.score - a.score);
-    if (!scored.length) return null;
-
-    const best = scored[0];
-    const second = scored[1];
-    if (best.score < 5) {
-      return {
-        confidence: 0.3,
-        reason: 'No confident organic search result candidate',
-        strategy: 'ask-user',
-        candidates: scored.slice(0, 5).map((c) => ({ selector: `a[href]@${c.index}`, score: c.score })),
-      };
-    }
-
-    if (second && second.score === best.score) {
-      return {
-        confidence: 0.45,
-        reason: 'Ambiguous top-ranked search results',
-        strategy: 'ask-user',
-        candidates: scored.slice(0, 5).map((c) => ({ selector: `a[href]@${c.index}`, score: c.score })),
-      };
-    }
-
-    return {
-      locator: links.nth(best.index),
-      confidence: best.sponsored ? 0.5 : 0.88,
-      reason: best.sponsored ? 'Best candidate found but marked sponsored' : 'Ranked organic search result matched',
-      strategy: 'semantic-match',
-      candidates: scored.slice(0, 5).map((c) => ({ selector: `a[href]@${c.index}`, score: c.score })),
-    };
   }
 
   private async resolveSemantic(page: Page, target: RecordedTargetSnapshot): Promise<ReplayResolutionResult> {

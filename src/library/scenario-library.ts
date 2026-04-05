@@ -6,9 +6,8 @@ import { buildDownloadFileScenario, type DownloadFileParams } from './builders/d
 import { buildExtractMainTextScenario, type ExtractMainTextParams } from './builders/extract-main-text.js';
 import { buildOpenLatestItemScenario, type OpenLatestItemParams } from './builders/open-latest-item.js';
 import { buildSearchAndOpenScenario, type SearchAndOpenParams } from './builders/search-and-open.js';
-import { buildSearchWebAndOpenSiteScenario, type SearchWebAndOpenSiteParams } from './builders/search-web-and-open-site.js';
 
-export type LibraryScenarioName = 'search-and-open' | 'search-web-and-open-site' | 'download-file' | 'extract-main-text' | 'open-latest-item';
+export type LibraryScenarioName = 'search-and-open' | 'download-file' | 'extract-main-text' | 'open-latest-item';
 export type LibraryParams = Record<string, string>;
 
 export interface LibraryScenarioMetadata {
@@ -24,12 +23,6 @@ const METADATA: Record<LibraryScenarioName, LibraryScenarioMetadata> = {
     description: 'Open a search page, type query, and submit.',
     expectedParams: ['startUrl', 'query', 'targetKeyword'],
     example: 'run-library-scenario search-and-open --param startUrl=http://127.0.0.1:3000/replay-search-page.html --param query=docs --param targetKeyword=docs',
-  },
-  'search-web-and-open-site': {
-    name: 'search-web-and-open-site',
-    description: 'Open a public search page, run query, and click the intended organic result.',
-    expectedParams: ['searchUrl', 'query', 'targetKeyword', 'targetDomain'],
-    example: 'run-library-scenario search-web-and-open-site --param searchUrl=http://127.0.0.1:3000/search-engine.html --param query=IANA example domains --param targetKeyword=IANA --param targetDomain=iana.org',
   },
   'download-file': {
     name: 'download-file',
@@ -62,8 +55,6 @@ export class ScenarioLibrary {
     switch (name as LibraryScenarioName) {
       case 'search-and-open':
         return buildSearchAndOpenScenario(params as unknown as SearchAndOpenParams);
-      case 'search-web-and-open-site':
-        return buildSearchWebAndOpenSiteScenario(params as unknown as SearchWebAndOpenSiteParams);
       case 'download-file':
         return buildDownloadFileScenario(params as unknown as DownloadFileParams);
       case 'extract-main-text':

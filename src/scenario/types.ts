@@ -23,9 +23,6 @@ export interface RecordedTargetSnapshot {
   placeholder?: string | null;
   nearestTextContext?: string;
   containerHint?: string | null;
-  targetKeyword?: string;
-  targetDomain?: string;
-  preferOrganic?: boolean;
   domSnippet?: string;
   visible?: boolean;
   enabled?: boolean;

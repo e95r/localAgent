@@ -6,7 +6,6 @@ import { ScenarioRecorder } from '../../src/recorder/scenario-recorder.js';
 import { ScenarioRunner } from '../../src/replay/scenario-runner.js';
 import type { Scenario } from '../../src/scenario/types.js';
 import { createFixtureServer } from '../test-server.js';
-import { buildSearchWebAndOpenSiteScenario } from '../../src/library/builders/search-web-and-open-site.js';
 
 let baseUrl = '';
 let closeServer: (() => Promise<void>) | undefined;
@@ -191,55 +190,4 @@ it('strict replay fails when exact selector is gone', async () => {
     expect(result.success).toBeFalsy();
     await executor.close();
   });
-
-  it('library search-web-and-open-site opens the intended organic result', async () => {
-    const executor = new PlaywrightBrowserExecutor();
-    const observer = new DOMPageObserver();
-    const scenario = buildSearchWebAndOpenSiteScenario({
-      searchUrl: `${baseUrl}/search-engine.html`,
-      query: 'IANA example domains',
-      targetKeyword: 'IANA',
-      targetDomain: 'iana.org',
-    });
-
-    const runner = new ScenarioRunner({ executor, observer, validator: new DefaultActionValidator() });
-    const result = await runner.runScenario(scenario, { mode: 'adaptive' });
-    expect(result.success).toBeTruthy();
-    await executor.close();
-  });
-
-  it('library search-web-and-open-site ignores sponsored result and opens organic match', async () => {
-    const executor = new PlaywrightBrowserExecutor();
-    const observer = new DOMPageObserver();
-    const scenario = buildSearchWebAndOpenSiteScenario({
-      searchUrl: `${baseUrl}/search-engine-ads.html`,
-      query: 'IANA example domains',
-      targetKeyword: 'IANA',
-      targetDomain: 'iana.org',
-    });
-
-    const runner = new ScenarioRunner({ executor, observer, validator: new DefaultActionValidator() });
-    const result = await runner.runScenario(scenario, { mode: 'adaptive' });
-    expect(result.success).toBeTruthy();
-    expect(result.steps.find((step) => step.stepId === 'step-4-open-result')?.reason).toContain('organic');
-    await executor.close();
-  });
-
-  it('library search-web-and-open-site fails safely when no confident result exists', async () => {
-    const executor = new PlaywrightBrowserExecutor();
-    const observer = new DOMPageObserver();
-    const scenario = buildSearchWebAndOpenSiteScenario({
-      searchUrl: `${baseUrl}/search-engine-no-match.html`,
-      query: 'IANA example domains',
-      targetKeyword: 'IANA',
-      targetDomain: 'iana.org',
-    });
-
-    const runner = new ScenarioRunner({ executor, observer, validator: new DefaultActionValidator() });
-    const result = await runner.runScenario(scenario, { mode: 'adaptive' });
-    expect(result.success).toBeFalsy();
-    expect(result.steps.find((step) => step.stepId === 'step-4-open-result')?.strategy).toBe('ask-user');
-    await executor.close();
-  });
-
 });

@@ -4,7 +4,6 @@ export * from './approval/console-approval-prompter.js';
 export * from './config/runtime-config.js';
 export * from './library/scenario-library.js';
 export * from './library/builders/search-and-open.js';
-export * from './library/builders/search-web-and-open-site.js';
 export * from './library/builders/download-file.js';
 export * from './library/builders/extract-main-text.js';
 export * from './library/builders/open-latest-item.js';
