@@ -6,16 +6,17 @@ export async function createFixtureServer(): Promise<{ baseUrl: string; close: (
   const fixturesDir = path.resolve('tests/fixtures');
 
   const server = http.createServer(async (req, res) => {
-    const url = req.url ?? '/';
+    const requestUrl = new URL(req.url ?? '/', 'http://127.0.0.1');
+    const pathname = requestUrl.pathname;
 
-    if (url.startsWith('/files/')) {
+    if (pathname.startsWith('/files/')) {
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', 'attachment; filename="mock.pdf"');
       res.end('%PDF-1.4 mock');
       return;
     }
 
-    const route = url === '/' ? '/download.html' : url;
+    const route = pathname === '/' ? '/download.html' : pathname;
     const filePath = path.join(fixturesDir, route.replace(/^\//, ''));
 
     try {
