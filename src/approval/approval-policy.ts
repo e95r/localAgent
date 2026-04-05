@@ -57,8 +57,16 @@ export function classifyStepRisk(step: ScenarioStep, confidence: number, strateg
 
   if (step.action.actionType === 'open_url') {
     const nextUrl = step.action.value ?? '';
-    if (nextUrl && !nextUrl.startsWith(currentUrl) && !nextUrl.startsWith('/')) {
-      return { riskLevel: 'high', reason: 'Navigation target URL is outside current origin or unknown' };
+    if (nextUrl) {
+      try {
+        const current = new URL(currentUrl);
+        const next = new URL(nextUrl, current);
+        if (current.origin != next.origin) {
+          return { riskLevel: 'high', reason: 'Navigation target URL is outside current origin or unknown' };
+        }
+      } catch {
+        return { riskLevel: 'high', reason: 'Navigation target URL is outside current origin or unknown' };
+      }
     }
   }
 

@@ -9,6 +9,10 @@ export interface RuntimeConfig {
   useLlmByDefault: boolean;
   artifactsDir: string;
   jsonOutputDefault: boolean;
+  reviewDefault: 'compact' | 'verbose';
+  maxRetriesDefault: number;
+  waitStrategyDefault: 'auto' | 'fast' | 'stable';
+  autoConsentDefault: boolean;
 }
 
 export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
@@ -19,6 +23,10 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   useLlmByDefault: false,
   artifactsDir: 'artifacts',
   jsonOutputDefault: false,
+  reviewDefault: 'compact',
+  maxRetriesDefault: 1,
+  waitStrategyDefault: 'auto',
+  autoConsentDefault: true,
 };
 
 function parseBool(value: string | undefined, fallback: boolean): boolean {
@@ -35,5 +43,9 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
     useLlmByDefault: parseBool(env.BROWSER_AGENT_USE_LLM, DEFAULT_RUNTIME_CONFIG.useLlmByDefault),
     artifactsDir: env.BROWSER_AGENT_ARTIFACTS_DIR ?? DEFAULT_RUNTIME_CONFIG.artifactsDir,
     jsonOutputDefault: parseBool(env.BROWSER_AGENT_JSON_OUTPUT, DEFAULT_RUNTIME_CONFIG.jsonOutputDefault),
+    reviewDefault: (env.BROWSER_AGENT_REVIEW as 'compact' | 'verbose') ?? DEFAULT_RUNTIME_CONFIG.reviewDefault,
+    maxRetriesDefault: Number(env.BROWSER_AGENT_MAX_RETRIES ?? DEFAULT_RUNTIME_CONFIG.maxRetriesDefault),
+    waitStrategyDefault: (env.BROWSER_AGENT_WAIT_STRATEGY as 'auto' | 'fast' | 'stable') ?? DEFAULT_RUNTIME_CONFIG.waitStrategyDefault,
+    autoConsentDefault: parseBool(env.BROWSER_AGENT_AUTO_CONSENT, DEFAULT_RUNTIME_CONFIG.autoConsentDefault),
   };
 }

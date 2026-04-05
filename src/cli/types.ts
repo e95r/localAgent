@@ -9,6 +9,12 @@ export interface CliCommonOptions {
   useLlm: boolean;
   artifactsDir: string;
   json: boolean;
+  sessionFile?: string;
+  siteProfile?: string;
+  review?: 'compact' | 'verbose';
+  maxRetries?: number;
+  waitStrategy?: 'auto' | 'fast' | 'stable';
+  autoConsent?: boolean;
 }
 
 export type CliCommand =

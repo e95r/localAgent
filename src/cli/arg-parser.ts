@@ -33,12 +33,25 @@ function baseOptions(args: string[], cfg: RuntimeConfig): CliCommonOptions {
   const approval = (readFlag(args, '--approval') as ApprovalMode | undefined) ?? cfg.defaultApprovalMode;
   if (!['never', 'risky-only', 'always'].includes(approval)) throw new Error(`Invalid --approval: ${approval}`);
 
+  const review = (readFlag(args, '--review') as 'compact' | 'verbose' | undefined) ?? cfg.reviewDefault;
+  if (!['compact', 'verbose'].includes(review)) throw new Error(`Invalid --review: ${review}`);
+  const waitStrategy = (readFlag(args, '--wait-strategy') as 'auto' | 'fast' | 'stable' | undefined) ?? cfg.waitStrategyDefault;
+  if (!['auto', 'fast', 'stable'].includes(waitStrategy)) throw new Error(`Invalid --wait-strategy: ${waitStrategy}`);
+  const maxRetries = Number(readFlag(args, '--max-retries') ?? cfg.maxRetriesDefault);
+  if (!Number.isFinite(maxRetries) || maxRetries < 0) throw new Error(`Invalid --max-retries: ${maxRetries}`);
+
   return {
     mode,
     approval,
     useLlm: readBoolean(args, '--use-llm', cfg.useLlmByDefault),
     artifactsDir: readFlag(args, '--artifacts-dir') ?? cfg.artifactsDir,
     json: args.includes('--json') || cfg.jsonOutputDefault,
+    sessionFile: readFlag(args, '--session-file'),
+    siteProfile: readFlag(args, '--site-profile'),
+    review,
+    maxRetries,
+    waitStrategy,
+    autoConsent: readBoolean(args, '--auto-consent', cfg.autoConsentDefault),
   };
 }
 
@@ -94,5 +107,11 @@ Common flags:
   --approval never|risky-only|always
   --use-llm true|false
   --artifacts-dir <path>
+  --session-file <path>
+  --site-profile <name>
+  --review verbose|compact
+  --max-retries <n>
+  --wait-strategy auto|fast|stable
+  --auto-consent true|false
   --json
 `;

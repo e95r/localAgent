@@ -110,3 +110,43 @@ npm run test:library
 ```
 
 Основной suite остаётся локальным/воспроизводимым: fixtures + локальный test server, без обязательной реальной Ollama.
+
+## Iteration 7: Real-world hardening
+
+Added hardening layers while keeping core deterministic replay and local reproducible tests:
+
+- **Session/Auth support** via `SessionStore`, `AuthStateLoader/Saver`, `BrowserSessionManager`.
+- **Banner/modal handling** via `ConsentBannerResolver` with safe/ambiguous classification.
+- **Robust waits** via `PageReadinessEvaluator`, wait strategies (`auto|fast|stable`), and enabled-state waits.
+- **Site profiles** via `SiteProfile` + `SiteProfileRegistry` with generic fallback.
+- **Review mode** via review summary (`compact|verbose`) integrated in CLI artifacts.
+- **Bounded recovery/retry** via `ReplayRecoveryPolicy` and retry traces.
+- **Extended debug artifacts** (`site-profile.json`, `session-state-meta.json`, `page-readiness.json`, `retry-trace.json`, `banner-detection.json`, `review-summary.json`, `state-transition-log.json`).
+
+### New CLI flags
+
+- `--session-file <path>`
+- `--site-profile <name>`
+- `--review verbose|compact`
+- `--max-retries <n>`
+- `--wait-strategy auto|fast|stable`
+- `--auto-consent true|false`
+
+### Real-world local fixtures
+
+`tests/fixtures/realworld/` now includes:
+- auth-required-page
+- cookie-banner-page
+- modal-newsletter-page
+- delayed-results-page
+- loading-spinner-page
+- disabled-then-enabled-page
+- nested-menu-page
+- dashboard-like-page
+- out-of-origin-warning-page
+- expired-session-page
+
+### Additional test scripts
+
+- `npm run test:realworld` (integration hardening suite)
+- `npm run test:profiles` (profile/session/review/readiness units)

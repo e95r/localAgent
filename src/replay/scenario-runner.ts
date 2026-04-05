@@ -7,6 +7,13 @@ import type { AgentAction } from '../types/actions.js';
 import type { ReplayMode, ReplayResult, ReplayStepResult, Scenario } from '../scenario/types.js';
 import { ReplayTargetResolver } from './target-resolver.js';
 import { verifyPostStepExpectation } from './post-step-verifier.js';
+import type { WaitStrategy } from '../readiness/wait-strategy.js';
+import { PageReadinessEvaluator } from '../readiness/page-readiness-evaluator.js';
+import type { SiteProfile } from '../profiles/site-profile.js';
+import { GENERIC_PROFILE } from '../profiles/site-profile.js';
+import { ConsentBannerResolver } from '../banner/consent-resolver.js';
+import { ReplayRecoveryPolicy } from '../recovery/retry-policy.js';
+import { StateTransitionTracker } from '../readiness/state-transition-tracker.js';
 
 export interface ScenarioRunnerOptions {
   mode: ReplayMode;
@@ -15,18 +22,28 @@ export interface ScenarioRunnerOptions {
   plannerAssistedResolver?: (ctx: { scenario: Scenario; stepIndex: number; pageUrl: string }) => Promise<string | null>;
   approvalHandler?: (ctx: { scenario: Scenario; stepIndex: number; confidence: number; strategy: string; action: AgentAction; reason: string }) => Promise<{ approved: boolean; outcome: 'not-required' | 'approved' | 'rejected'; prompt?: string; decision?: unknown }>;
   onStepComplete?: (summary: { stepId: string; actionType: string; target: string; result: 'success' | 'failure'; durationMs: number; plannerSource: string; approvalOutcome: 'not-required' | 'approved' | 'rejected' }) => void;
+  waitStrategy?: WaitStrategy;
+  autoConsent?: boolean;
+  siteProfile?: SiteProfile;
 }
 
 export class ScenarioRunner {
   private readonly resolver = new ReplayTargetResolver();
+  private readonly readiness = new PageReadinessEvaluator();
+  private readonly consentResolver = new ConsentBannerResolver();
 
   constructor(private readonly deps: { executor: BrowserExecutor; observer: PageObserver; validator: ActionValidator }) {}
 
   async runScenario(scenario: Scenario, options: ScenarioRunnerOptions): Promise<ReplayResult> {
     const results: ReplayStepResult[] = [];
+    const tracker = new StateTransitionTracker();
     const maxRetries = options.maxRetriesPerStep ?? 1;
+    const retryPolicy = new ReplayRecoveryPolicy(maxRetries + 1);
+    const profile = options.siteProfile ?? GENERIC_PROFILE;
+    const waitStrategy = options.waitStrategy ?? 'auto';
 
     await this.deps.executor.openUrl(scenario.metadata.startUrl);
+    tracker.log('start', { startUrl: scenario.metadata.startUrl, profile: profile.name });
 
     for (let index = 0; index < scenario.steps.length; index += 1) {
       const step = scenario.steps[index];
@@ -39,6 +56,42 @@ export class ScenarioRunner {
         try {
           const state = await this.deps.observer.collect(this.deps.executor.getPage());
           const beforeUrl = state.url;
+
+          const readiness = await this.readiness.waitUntilReady(this.deps.executor.getPage(), profile, waitStrategy);
+          tracker.log('readiness', { stepId: step.stepId, ...readiness });
+          if (!readiness.ready) {
+            const retry = retryPolicy.decide(attempts, 'readiness-timeout');
+            tracker.log('retry', { ...retry });
+            if (retry.shouldRetry) continue;
+          }
+
+          const banner = await this.consentResolver.handleIfSafe(this.deps.executor.getPage(), profile, options.autoConsent ?? true);
+          tracker.log('banner', { stepId: step.stepId, ...banner });
+          if (banner.detected && banner.ambiguous && options.approvalHandler) {
+            const approval = await options.approvalHandler({
+              scenario,
+              stepIndex: index,
+              confidence: 0.55,
+              strategy: 'ask-user',
+              action: { type: 'ask_user', question: 'Approve ambiguous banner action?', plannerSource: 'rule-based' },
+              reason: banner.reason,
+            });
+            if (!approval.approved) {
+              const rejected: ReplayStepResult = {
+                stepId: step.stepId,
+                actionType: step.action.actionType,
+                success: false,
+                strategy: 'ask-user',
+                confidence: 0.55,
+                reason: 'Ambiguous banner/modal action rejected',
+                askUserQuestion: 'Ambiguous banner action requires confirmation',
+                approvalOutcome: approval.outcome,
+              };
+              results.push(rejected);
+              await this.persistArtifacts(options, scenario, results, rejected, { tracker: tracker.snapshot(), profile, banner });
+              return this.finish(options.mode, results);
+            }
+          }
 
           if (step.action.actionType === 'open_url') {
             await this.deps.executor.openUrl(step.action.value ?? scenario.metadata.startUrl);
@@ -71,6 +124,16 @@ export class ScenarioRunner {
           if (!step.target) throw new Error('Step target is missing');
           let resolution = await this.resolver.resolve(this.deps.executor.getPage(), step.target, options.mode);
 
+          if (!resolution.locator && profile.preferredSelectors.length > 0) {
+            for (const selector of profile.preferredSelectors) {
+              const loc = this.deps.executor.getPage().locator(selector).first();
+              if (await loc.count()) {
+                resolution = { locator: loc, confidence: 0.75, reason: 'Resolved by site profile preferred selector', strategy: 'planner-assisted' };
+                break;
+              }
+            }
+          }
+
           if (!resolution.locator && options.mode === 'adaptive' && options.plannerAssistedResolver) {
             const plannerSelector = await options.plannerAssistedResolver({ scenario, stepIndex: index, pageUrl: await this.deps.executor.getCurrentUrl() });
             if (plannerSelector) {
@@ -93,8 +156,13 @@ export class ScenarioRunner {
               approvalOutcome: 'not-required',
             };
             results.push(askResult);
-            await this.persistArtifacts(options, scenario, results, askResult, resolution);
+            await this.persistArtifacts(options, scenario, results, askResult, { resolution, tracker: tracker.snapshot(), profile, banner });
             return this.finish(options.mode, results);
+          }
+
+          const strictSelector = step.target.strictSelectors[0];
+          if (strictSelector && (step.action.actionType === 'click' || step.action.actionType === 'submit_search')) {
+            await this.readiness.waitForEnabled(this.deps.executor.getPage(), strictSelector, waitStrategy);
           }
 
           const targetId = await resolution.locator.evaluate((el) => el.getAttribute('data-agent-id') ?? '');
@@ -129,7 +197,7 @@ export class ScenarioRunner {
               };
               results.push(rejected);
               options.onStepComplete?.({ stepId: step.stepId, actionType: step.action.actionType, target: step.target.text ?? step.target.strictSelectors[0] ?? '', result: 'failure', durationMs: Date.now() - started, plannerSource: 'replay', approvalOutcome });
-              await this.persistArtifacts(options, scenario, results, rejected, { resolution, approvalPrompt, approvalDecision });
+              await this.persistArtifacts(options, scenario, results, rejected, { resolution, approvalPrompt, approvalDecision, tracker: tracker.snapshot(), profile, banner });
               return this.finish(options.mode, results);
             }
           }
@@ -167,17 +235,24 @@ export class ScenarioRunner {
             plannerSource: 'replay',
           };
 
-          if (!expectedCheck.passed && options.mode === 'adaptive' && attempts <= maxRetries) continue;
+          if (!expectedCheck.passed && options.mode === 'adaptive') {
+            const retry = retryPolicy.decide(attempts, 'expectation-failed');
+            tracker.log('retry', { ...retry });
+            if (retry.shouldRetry) continue;
+          }
 
           results.push(stepResult);
+          tracker.log('action', { stepId: step.stepId, success: stepResult.success, strategy: stepResult.strategy });
           options.onStepComplete?.({ stepId: step.stepId, actionType: step.action.actionType, target: step.target.text ?? step.target.strictSelectors[0] ?? '', result: stepResult.success ? 'success' : 'failure', durationMs: Date.now() - started, plannerSource: 'replay', approvalOutcome });
           if (!expectedCheck.passed) {
-            await this.persistArtifacts(options, scenario, results, stepResult, resolution);
+            await this.persistArtifacts(options, scenario, results, stepResult, { resolution, tracker: tracker.snapshot(), profile, banner });
             return this.finish(options.mode, results);
           }
           done = true;
         } catch (error) {
-          if (attempts > maxRetries) {
+          const retry = retryPolicy.decide(attempts, 'execution-error');
+          tracker.log('retry', { ...retry, error: error instanceof Error ? error.message : String(error) });
+          if (!retry.shouldRetry) {
             const failed: ReplayStepResult = {
               stepId: step.stepId,
               actionType: step.action.actionType,
@@ -189,7 +264,7 @@ export class ScenarioRunner {
               approvalOutcome: 'not-required',
             };
             results.push(failed);
-            await this.persistArtifacts(options, scenario, results, failed);
+            await this.persistArtifacts(options, scenario, results, failed, { tracker: tracker.snapshot(), profile });
             return this.finish(options.mode, results);
           }
         }
@@ -232,6 +307,12 @@ export class ScenarioRunner {
     await writeFile(path.join(dir, 'target-resolution.json'), JSON.stringify(resolution ?? {}, null, 2), 'utf-8');
     await writeFile(path.join(dir, 'replay-failure-reason.txt'), `${failure.reason}${failure.error ? `\n${failure.error}` : ''}`, 'utf-8');
     await writeFile(path.join(dir, 'expected-vs-actual.json'), JSON.stringify(failure.expectedCheck ?? {}, null, 2), 'utf-8');
+    const resolved = (resolution ?? {}) as Record<string, unknown>;
+    await writeFile(path.join(dir, 'site-profile.json'), JSON.stringify(resolved.profile ?? {}, null, 2), 'utf-8');
+    await writeFile(path.join(dir, 'page-readiness.json'), JSON.stringify(resolved.readiness ?? {}, null, 2), 'utf-8');
+    await writeFile(path.join(dir, 'retry-trace.json'), JSON.stringify(resolved.tracker ?? [], null, 2), 'utf-8');
+    await writeFile(path.join(dir, 'banner-detection.json'), JSON.stringify(resolved.banner ?? {}, null, 2), 'utf-8');
+    await writeFile(path.join(dir, 'state-transition-log.json'), JSON.stringify(resolved.tracker ?? [], null, 2), 'utf-8');
   }
 }
 

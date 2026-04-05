@@ -15,7 +15,9 @@
     "test:replay": "vitest run tests/unit/scenario-* tests/unit/replay-* tests/integration/scenario-replay.integration.test.ts && playwright test tests/e2e/scenario-replay.e2e.spec.ts",
     "cli": "npm run build --silent && node dist/cli/index.js",
     "test:cli": "vitest run tests/unit/cli*.test.ts tests/integration/cli*.test.ts",
-    "test:library": "vitest run tests/unit/library*.test.ts"
+    "test:library": "vitest run tests/unit/library*.test.ts",
+    "test:realworld": "vitest run tests/integration/realworld-hardening.integration.test.ts",
+    "test:profiles": "vitest run tests/unit/session-and-profile.test.ts tests/unit/readiness-recovery-review.test.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.54.2",
