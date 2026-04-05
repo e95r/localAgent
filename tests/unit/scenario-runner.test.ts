@@ -58,4 +58,64 @@ describe('scenario runner', () => {
     expect(dirs.length).toBeGreaterThan(0);
     await rm(dir, { recursive: true, force: true });
   });
+
+  it('rebuilds state and validates with matched selector when resolved locator has no data-agent-id', async () => {
+    const scenario: Scenario = {
+      schemaVersion: '1.0.0',
+      id: 's-no-id',
+      name: 'runner no id',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      metadata: { sourceUrl: 'http://x', startUrl: 'http://x' },
+      steps: [{
+        stepId: 'st1',
+        action: { actionType: 'click' },
+        pageUrlAtRecordTime: 'http://x',
+        target: { strictSelectors: ['#result-link'], fallbackSelectors: ['a[href]'], text: 'Guide middle target', href: '/guide-middle', tag: 'a' },
+      }],
+    };
+
+    const collectedStates = [
+      makeState([makeElement({ id: 'el-old', tag: 'a', selectorHint: '#other', text: 'Other', href: '/other' })]),
+      makeState([makeElement({ id: 'el-42', tag: 'a', selectorHint: '#result-link', text: 'Guide middle target', href: '/guide-middle' })]),
+    ];
+
+    const validationCalls: string[] = [];
+    const firstLocator = {
+      count: async () => 1,
+      isEnabled: async () => true,
+      isVisible: async () => false,
+      textContent: async () => '',
+      evaluate: async (fn: unknown) => {
+        const code = String(fn);
+        if (code.includes('data-agent-id')) return '';
+        return { tag: 'a', text: 'Guide middle target', href: '/guide-middle', ariaLabel: '', placeholder: '' };
+      },
+      click: async () => {},
+    };
+
+    const makeLocator = (selector: string) => ({
+      count: async () => (selector === '#result-link' ? 1 : 0),
+      first: () => ({ ...firstLocator, count: async () => (selector === '#result-link' ? 1 : 0) }),
+      nth: () => ({ isVisible: async () => false }),
+      locator: (nestedSelector: string) => makeLocator(nestedSelector),
+    });
+
+    const runner = new ScenarioRunner({
+      executor: {
+        openUrl: async () => {},
+        getPage: () => ({
+          waitForTimeout: async () => {},
+          locator: (selector: string) => makeLocator(selector),
+        }),
+        waitForPageSettled: async () => {},
+      } as any,
+      observer: { collect: async () => collectedStates.shift() ?? makeState([]) } as any,
+      validator: { validate: (action) => validationCalls.push((action as { targetId: string }).targetId) } as any,
+    });
+
+    const result = await runner.runScenario(scenario, { mode: 'strict' });
+    expect(result.steps[0]?.reason).not.toBe('Replay execution failed');
+    expect(validationCalls).toEqual(['el-42']);
+  });
 });
