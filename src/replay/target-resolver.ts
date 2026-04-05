@@ -78,29 +78,54 @@ export class ReplayTargetResolver {
       if (keyword && hrefLower.includes(keyword)) score += 4;
       if (keyword && textLower.includes(keyword)) score += 5;
       if (target.text && textLower.includes(target.text.toLowerCase())) score += 2;
-      if (candidate.sponsored) score -= 12;
-
       scored.push({ index, score, href: candidate.href, text: candidate.text, sponsored: candidate.sponsored });
     }
 
-    scored.sort((a, b) => b.score - a.score);
+    scored.sort((a, b) => b.score - a.score || a.index - b.index);
     if (!scored.length) return null;
 
-    const best = scored[0];
-    const second = scored[1];
+    const bestScore = scored[0].score;
+    const topCandidates = scored.filter((candidate) => candidate.score === bestScore);
+    const bestTop = topCandidates[0];
+
+    const describe = (candidate: { href: string; score: number; sponsored: boolean }) =>
+      `href=${candidate.href || '(empty)'}, score=${candidate.score}, sponsored=${candidate.sponsored}`;
+
+    let best = bestTop;
+
     if (best.score < 5) {
       return {
         confidence: 0.3,
-        reason: 'No confident organic search result candidate',
+        reason: `No confident organic search result candidate; top=${describe(best)}`,
         strategy: 'ask-user',
         candidates: scored.slice(0, 5).map((c) => ({ selector: `a[href]@${c.index}`, score: c.score })),
       };
     }
 
-    if (second && second.score === best.score) {
+    if (topCandidates.length > 1) {
+      const topOrganicDomainMatch = topCandidates.find((candidate) => !candidate.sponsored && domain && candidate.href.toLowerCase().includes(domain));
+      if (!topOrganicDomainMatch) {
+        return {
+          confidence: 0.45,
+          reason: `Ambiguous top-ranked search results; top=${topCandidates.map((candidate) => describe(candidate)).join(' | ')}`,
+          strategy: 'ask-user',
+          candidates: scored.slice(0, 5).map((c) => ({ selector: `a[href]@${c.index}`, score: c.score })),
+        };
+      }
+      best = topOrganicDomainMatch;
+    }
+
+    const bestOrganic = scored.find((candidate) => !candidate.sponsored);
+    const organicCloseScoreGap = 6;
+    if (best.sponsored && bestOrganic && bestOrganic.score >= best.score - organicCloseScoreGap) {
+      best = bestOrganic;
+    }
+
+    const second = scored[1];
+    if (second && second.score === best.score && second.index !== best.index) {
       return {
         confidence: 0.45,
-        reason: 'Ambiguous top-ranked search results',
+        reason: `Ambiguous top-ranked search results; selected=${describe(best)}; rival=${describe(second)}`,
         strategy: 'ask-user',
         candidates: scored.slice(0, 5).map((c) => ({ selector: `a[href]@${c.index}`, score: c.score })),
       };
@@ -109,7 +134,9 @@ export class ReplayTargetResolver {
     return {
       locator: links.nth(best.index),
       confidence: best.sponsored ? 0.5 : 0.88,
-      reason: best.sponsored ? 'Best candidate found but marked sponsored' : 'Ranked organic search result matched',
+      reason: best.sponsored
+        ? `Best candidate found but marked sponsored; selected=${describe(best)}`
+        : `Ranked organic search result matched; selected=${describe(best)}`,
       strategy: 'semantic-match',
       candidates: scored.slice(0, 5).map((c) => ({ selector: `a[href]@${c.index}`, score: c.score })),
     };
