@@ -41,4 +41,17 @@ describe('approval policy', () => {
     const risk = classifyStepRisk(step('click', 'Open'), 0.5, 'semantic-match', 'http://127.0.0.1');
     expect(risk.riskLevel).toBe('medium');
   });
+
+  it('classifies out-of-origin open_url as high risk', () => {
+    const policy = new ApprovalPolicy('risky-only');
+    const decision = policy.evaluate({
+      step: { stepId: 's1', action: { actionType: 'open_url', value: 'https://example.com' }, pageUrlAtRecordTime: 'http://127.0.0.1:3000/a' },
+      confidence: 0.95,
+      strategy: 'strict-selector',
+      currentUrl: 'http://127.0.0.1:3000/a',
+      source: 'test',
+    });
+    expect(decision.riskLevel).toBe('high');
+    expect(decision.requiresApproval).toBe(true);
+  });
 });

@@ -1,0 +1,11 @@
+<!doctype html><html><body>
+<div id="app">Checking session...</div>
+<button id="secret-action" data-agent-id="secret-action" style="display:none">Open secret</button>
+<div id="secret-result"></div>
+<script>
+const has = localStorage.getItem('session')==='ok' || document.cookie.includes('session=ok');
+if(has){document.getElementById('app').textContent='Welcome, authorized';document.getElementById('secret-action').style.display='block';}
+else{document.getElementById('app').textContent='Login required';}
+document.getElementById('secret-action').onclick=()=>document.getElementById('secret-result').textContent='Secret opened';
+</script>
+</body></html>

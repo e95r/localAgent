@@ -22,10 +22,12 @@ export class PlaywrightBrowserExecutor implements BrowserExecutor {
   private context?: BrowserContext;
   private page?: Page;
 
+  constructor(private readonly contextOptions: Parameters<Browser['newContext']>[0] = { acceptDownloads: true }) {}
+
   async openUrl(url: string): Promise<void> {
     if (!this.browser) {
       this.browser = await chromium.launch({ headless: true });
-      this.context = await this.browser.newContext({ acceptDownloads: true });
+      this.context = await this.browser.newContext(this.contextOptions);
       this.page = await this.context.newPage();
     }
     await this.page!.goto(url);

@@ -37,6 +37,51 @@ test.describe('CLI e2e', () => {
     }
   });
 
+
+
+  test('replay with session file succeeds on auth fixture', async () => {
+    const server = await createFixtureServer();
+    const tmp = await mkdtemp(path.join(os.tmpdir(), 'cli-e2e-session-'));
+    try {
+      const statePath = path.join(tmp, 'state.json');
+      await (await import('node:fs/promises')).writeFile(statePath, JSON.stringify({
+        cookies: [],
+        origins: [{ origin: server.baseUrl, localStorage: [{ name: 'session', value: 'ok' }] }],
+      }), 'utf-8');
+      const scenario = {
+        schemaVersion: '1.0.0', id: 'rw-auth', name: 'rw-auth', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+        metadata: { sourceUrl: `${server.baseUrl}/realworld/auth-required-page.html`, startUrl: `${server.baseUrl}/realworld/auth-required-page.html` },
+        steps: [{ stepId: 's1', action: { actionType: 'click' }, pageUrlAtRecordTime: `${server.baseUrl}/realworld/auth-required-page.html`, target: { strictSelectors: ['#secret-action'], fallbackSelectors: [] }, postActionExpectation: { textVisible: 'Secret opened' } }],
+      };
+      const file = path.join(tmp, 'auth.json');
+      await new ScenarioStore().saveScenarioToFile(file, scenario as any);
+      const code = await runCli(['replay', '--file', file, '--session-file', statePath, '--review', 'verbose', '--approval', 'never', '--artifacts-dir', tmp, '--json']);
+      expect(code).toBe(0);
+    } finally {
+      await server.close();
+      await rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('out-of-origin step asks approval in risky-only mode and reject aborts', async () => {
+    const server = await createFixtureServer();
+    const tmp = await mkdtemp(path.join(os.tmpdir(), 'cli-e2e-risky-'));
+    try {
+      const scenario = {
+        schemaVersion: '1.0.0', id: 'rw-ext', name: 'rw-ext', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+        metadata: { sourceUrl: `${server.baseUrl}/realworld/out-of-origin-warning-page.html`, startUrl: `${server.baseUrl}/realworld/out-of-origin-warning-page.html` },
+        steps: [{ stepId: 's1', action: { actionType: 'open_url', value: 'https://example.com' }, pageUrlAtRecordTime: `${server.baseUrl}/realworld/out-of-origin-warning-page.html` }],
+      };
+      const file = path.join(tmp, 'ext.json');
+      await new ScenarioStore().saveScenarioToFile(file, scenario as any);
+      const code = await runCli(['replay', '--file', file, '--approval', 'risky-only', '--artifacts-dir', tmp, '--json']);
+      expect(code).toBeGreaterThan(0);
+    } finally {
+      await server.close();
+      await rm(tmp, { recursive: true, force: true });
+    }
+  });
+
   test('missing params fail with clean message', async () => {
     const code = await runCli(['run-library-scenario', 'search-and-open', '--param', 'startUrl=http://x', '--json']);
     expect(code).toBeGreaterThan(0);

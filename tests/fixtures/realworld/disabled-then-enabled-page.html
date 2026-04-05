@@ -1,0 +1,5 @@
+<!doctype html><html><body>
+<button id="late-btn" data-agent-id="late-btn" disabled onclick="document.getElementById('out').textContent='clicked'">Late Button</button>
+<div id="out"></div>
+<script>setTimeout(()=>{document.getElementById('late-btn').disabled=false;},400)</script>
+</body></html>

@@ -26,6 +26,24 @@ describe('cli arg parser', () => {
     expect(() => parseCliArgs(['replay'], DEFAULT_RUNTIME_CONFIG)).toThrow(/requires --file/);
   });
 
+
+
+  it('parses iteration 7 replay flags', () => {
+    const command = parseCliArgs([
+      'replay', '--file', 'scenarios/a.json', '--session-file', 'state.json', '--site-profile', 'fixture-dashboard',
+      '--review', 'verbose', '--max-retries', '3', '--wait-strategy', 'stable', '--auto-consent', 'false',
+    ], DEFAULT_RUNTIME_CONFIG);
+    expect(command.command).toBe('replay');
+    if (command.command === 'replay') {
+      expect(command.sessionFile).toBe('state.json');
+      expect(command.siteProfile).toBe('fixture-dashboard');
+      expect(command.review).toBe('verbose');
+      expect(command.maxRetries).toBe(3);
+      expect(command.waitStrategy).toBe('stable');
+      expect(command.autoConsent).toBe(false);
+    }
+  });
+
   it('parses library params key value format', () => {
     const command = parseCliArgs(['run-library-scenario', 'download-file', '--param', 'startUrl=http://x', '--param', 'targetKeyword=Download'], DEFAULT_RUNTIME_CONFIG);
     expect(command.command).toBe('run-library-scenario');

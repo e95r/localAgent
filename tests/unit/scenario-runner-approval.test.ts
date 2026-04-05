@@ -19,8 +19,13 @@ describe('scenario runner approval integration', () => {
       count: async () => 1,
       evaluate: async () => 'target-1',
       click: async () => {},
+      isVisible: async () => false,
+      textContent: async () => '',
+      fill: async () => {},
+      press: async () => {},
+      isEnabled: async () => true,
     };
-    const page = { locator: () => ({ first: () => locator }) };
+    const page = { locator: () => ({ first: () => locator }), waitForTimeout: async () => {} };
     const runner = new ScenarioRunner({
       executor: { openUrl: async () => {}, getPage: () => page, waitForPageSettled: async () => {}, getCurrentUrl: async () => 'http://x' } as any,
       observer: { collect: async () => makeState([makeElement({ id: 'target-1' })]) } as any,

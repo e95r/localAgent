@@ -12,6 +12,10 @@ import type { ApprovalPrompter } from '../approval/approval-prompter.js';
 import { ScenarioLibrary } from '../library/scenario-library.js';
 import type { CliCommand, CliRunSummary, CliStepSummary } from './types.js';
 import type { RuntimeConfig } from '../config/runtime-config.js';
+import { SessionStore } from '../session/session-store.js';
+import { BrowserSessionManager } from '../session/browser-session-manager.js';
+import { SiteProfileRegistry } from '../profiles/site-profile-registry.js';
+import { formatReviewSummary } from '../review/review-summary.js';
 
 export interface CliRuntimeDeps {
   prompter?: ApprovalPrompter;
@@ -63,15 +67,38 @@ export async function executeCliCommand(command: CliCommand, config: RuntimeConf
   const prompter = deps.prompter ?? new ConsoleApprovalPrompter();
   const approvalPolicy = new ApprovalPolicy(command.approval);
 
-  const executor = new PlaywrightBrowserExecutor();
+  const sessionStore = new SessionStore();
+  const session = await sessionStore.resolve(command.sessionFile);
+  const sessionManager = new BrowserSessionManager();
+  const profileRegistry = new SiteProfileRegistry();
+  const profile = profileRegistry.resolve(scenario.metadata.startUrl, command.siteProfile);
+  await writeFile(path.join(artifactsRoot, 'session-state-meta.json'), JSON.stringify(session.metadata, null, 2), 'utf-8');
+
+  const executor = new PlaywrightBrowserExecutor(sessionManager.toContextOptions(session));
   try {
     const runner = new ScenarioRunner({ executor, observer: new DOMPageObserver(), validator: new DefaultActionValidator() });
     const replay = await runner.runScenario(scenario, {
       mode: command.mode,
+      maxRetriesPerStep: command.maxRetries ?? config.maxRetriesDefault,
+      waitStrategy: command.waitStrategy ?? config.waitStrategyDefault,
+      autoConsent: command.autoConsent ?? config.autoConsentDefault,
+      siteProfile: profile,
       debugArtifacts: { enabled: true, outputDir: artifactsRoot },
-      approvalHandler: async ({ scenario, stepIndex, confidence, strategy }) => {
+      approvalHandler: async ({ scenario, stepIndex, confidence, strategy, action, reason }) => {
         const step = scenario.steps[stepIndex];
         const decision = approvalPolicy.evaluate({ step, confidence, strategy, currentUrl: await executor.getCurrentUrl(), source: 'scenario-runner' });
+        const review = formatReviewSummary({
+          actionType: action.type,
+          currentUrl: await executor.getCurrentUrl(),
+          targetSummary: step.target?.text ?? step.target?.strictSelectors[0] ?? 'unknown-target',
+          reason,
+          confidence,
+          expectedOutcome: step.expectedOutcome,
+          risk: decision.riskLevel,
+          source: strategy === 'planner-assisted' ? 'planner-assisted' : 'replay',
+        }, command.review ?? config.reviewDefault);
+        await writeFile(path.join(artifactsRoot, 'review-summary.json'), review, 'utf-8');
+
         if (!decision.requiresApproval) return { approved: true, outcome: 'not-required' as const, decision };
         approvalRequested = true;
         const prompt = formatApprovalPrompt(decision.request);
@@ -97,6 +124,7 @@ export async function executeCliCommand(command: CliCommand, config: RuntimeConf
 
     await writeFile(path.join(artifactsRoot, 'execution-timeline.json'), JSON.stringify(timeline, null, 2), 'utf-8');
     await writeFile(path.join(artifactsRoot, 'cli-run-summary.json'), JSON.stringify(summary, null, 2), 'utf-8');
+    await writeFile(path.join(artifactsRoot, 'site-profile.json'), JSON.stringify(profile, null, 2), 'utf-8');
 
     const output = command.json
       ? JSON.stringify(summary, null, 2)

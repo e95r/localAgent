@@ -11,4 +11,9 @@ export interface LibraryScenarioDefinition<TParams extends Record<string, string
 export interface BaseScenarioParams {
   startUrl: string;
   mode?: ReplayMode;
+  sessionFile?: string;
+  siteProfile?: string;
+  waitStrategy?: 'auto' | 'fast' | 'stable';
+  maxRetries?: string;
+  review?: 'compact' | 'verbose';
 }
