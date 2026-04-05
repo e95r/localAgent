@@ -94,11 +94,43 @@ export class ScenarioRunner {
           }
 
           if (step.action.actionType === 'open_url') {
+            let approvalOutcome: 'not-required' | 'approved' | 'rejected' = 'not-required';
+            let approvalPrompt: string | undefined;
+            let approvalDecision: unknown;
+            if (options.approvalHandler) {
+              const approval = await options.approvalHandler({
+                scenario,
+                stepIndex: index,
+                confidence: 1,
+                strategy: 'strict-selector',
+                action: { type: 'ask_user', question: `open_url:${step.action.value ?? scenario.metadata.startUrl}`, plannerSource: 'rule-based' },
+                reason: 'URL opened',
+              });
+              approvalOutcome = approval.outcome;
+              approvalPrompt = approval.prompt;
+              approvalDecision = approval.decision;
+              if (!approval.approved) {
+                const rejected: ReplayStepResult = {
+                  stepId: step.stepId,
+                  actionType: step.action.actionType,
+                  success: false,
+                  strategy: 'ask-user',
+                  confidence: 1,
+                  reason: 'Action rejected by approval policy',
+                  askUserQuestion: 'User rejected risky action',
+                  approvalOutcome,
+                };
+                results.push(rejected);
+                options.onStepComplete?.({ stepId: step.stepId, actionType: step.action.actionType, target: step.action.value ?? '', result: 'failure', durationMs: Date.now() - started, plannerSource: 'replay', approvalOutcome });
+                await this.persistArtifacts(options, scenario, results, rejected, { approvalPrompt, approvalDecision, tracker: tracker.snapshot(), profile, banner });
+                return this.finish(options.mode, results);
+              }
+            }
             await this.deps.executor.openUrl(step.action.value ?? scenario.metadata.startUrl);
             const expectedCheck = await verifyPostStepExpectation(this.deps.executor, step.postActionExpectation);
-            const result: ReplayStepResult = { stepId: step.stepId, actionType: step.action.actionType, success: expectedCheck.passed, strategy: 'strict-selector', confidence: 1, reason: 'URL opened', expectedCheck, approvalOutcome: 'not-required' };
+            const result: ReplayStepResult = { stepId: step.stepId, actionType: step.action.actionType, success: expectedCheck.passed, strategy: 'strict-selector', confidence: 1, reason: 'URL opened', expectedCheck, approvalOutcome };
             results.push(result);
-            options.onStepComplete?.({ stepId: step.stepId, actionType: step.action.actionType, target: step.action.value ?? '', result: result.success ? 'success' : 'failure', durationMs: Date.now() - started, plannerSource: 'replay', approvalOutcome: 'not-required' });
+            options.onStepComplete?.({ stepId: step.stepId, actionType: step.action.actionType, target: step.action.value ?? '', result: result.success ? 'success' : 'failure', durationMs: Date.now() - started, plannerSource: 'replay', approvalOutcome });
             done = true;
             continue;
           }

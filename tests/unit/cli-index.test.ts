@@ -33,7 +33,7 @@ describe('cli index output handling', () => {
     mocks.executeCliCommand.mockResolvedValue({ exitCode: 0, output: '{"ok":true}' });
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
 
-    const exitCode = await runCli(['replay', '--json']);
+    const exitCode = await runCli(['replay', '--json'], { printOutput: true });
 
     expect(exitCode).toBe(0);
     expect(stdoutSpy).toHaveBeenCalledWith('{"ok":true}\n');
@@ -44,7 +44,7 @@ describe('cli index output handling', () => {
     mocks.executeCliCommand.mockResolvedValue({ exitCode: 0, output: '   ' });
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
 
-    const exitCode = await runCli(['replay']);
+    const exitCode = await runCli(['replay'], { printOutput: true });
 
     expect(exitCode).toBe(0);
     expect(stdoutSpy).not.toHaveBeenCalled();
