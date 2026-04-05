@@ -4,6 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { createFixtureServer } from '../test-server.js';
 import { runCli } from '../../src/cli/index.js';
+import { executeCliCommand } from '../../src/cli/runtime.js';
+import { DEFAULT_RUNTIME_CONFIG } from '../../src/config/runtime-config.js';
 import { ScenarioStore } from '../../src/storage/scenario-store.js';
 import { buildSearchAndOpenScenario } from '../../src/library/builders/search-and-open.js';
 
@@ -74,8 +76,25 @@ test.describe('CLI e2e', () => {
       };
       const file = path.join(tmp, 'ext.json');
       await new ScenarioStore().saveScenarioToFile(file, scenario as any);
-      const code = await runCli(['replay', '--file', file, '--approval', 'risky-only', '--artifacts-dir', tmp, '--json']);
-      expect(code).toBeGreaterThan(0);
+      let prompted = 0;
+      const result = await executeCliCommand({
+        command: 'replay',
+        file,
+        mode: 'strict',
+        approval: 'risky-only',
+        artifactsDir: tmp,
+        json: true,
+        useLlm: false,
+      }, { ...DEFAULT_RUNTIME_CONFIG }, {
+        prompter: {
+          prompt: async () => {
+            prompted += 1;
+            return { approved: false, answer: 'rejected', note: 'n' };
+          },
+        },
+      });
+      expect(prompted).toBe(1);
+      expect(result.exitCode).toBe(2);
     } finally {
       await server.close();
       await rm(tmp, { recursive: true, force: true });
