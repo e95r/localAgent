@@ -56,15 +56,18 @@ export class BrowserAgent {
       }
 
       const stepResult: AgentStepResult = { action, pageState: state };
+      const previousUrl = state.url;
 
       if (action.type === 'click') {
         await this.deps.executor.clickElement(mapTargetIdToSelector(action.targetId, state.interactiveElements));
+        await this.deps.executor.waitForPageSettled(previousUrl);
       } else if (action.type === 'type') {
         await this.deps.executor.typeText(mapTargetIdToSelector(action.targetId, state.interactiveElements), action.text);
       } else if (action.type === 'submit_search') {
         const selector = mapTargetIdToSelector(action.targetId, state.interactiveElements);
         if (action.mode === 'button') await this.deps.executor.clickElement(selector);
         else await this.deps.executor.pressEnter(selector);
+        await this.deps.executor.waitForPageSettled(previousUrl);
       } else if (action.type === 'extract_text') {
         stepResult.extractedText = await this.deps.executor.extractText(action.targetId === 'body' ? 'body' : mapTargetIdToSelector(action.targetId, state.interactiveElements));
       }

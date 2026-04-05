@@ -16,6 +16,14 @@ import { createFixtureServer } from '../test-server.js';
 let baseUrl = '';
 let closeServer: (() => Promise<void>) | undefined;
 
+async function resolveTargetId(executor: PlaywrightBrowserExecutor, url: string, predicate: (el: any) => boolean): Promise<string> {
+  await executor.openUrl(url);
+  const state = await new DOMPageObserver().collect(executor.getPage());
+  const target = state.interactiveElements.find(predicate);
+  if (!target) throw new Error(`Could not resolve target on page ${url}`);
+  return target.id;
+}
+
 function pickTargetId(ctx: any, predicate: (el: any) => boolean): string {
   const target = ctx.candidateElements.find((el: any) => predicate(el));
   if (target?.id) return target.id;
@@ -103,6 +111,69 @@ describe('hybrid planner integration', () => {
     const steps = await agent.run('download', `${baseUrl}/ambiguous-download-choice.html`, 2);
     expect(steps.at(-1)?.action.type).toBe('ask_user');
     expect(steps.at(-1)?.action.plannerSource).toBe('rule-based');
+    await executor.close();
+  });
+
+  it('ambiguous download with maxSteps=1 navigates to /primary', async () => {
+    const executor = new PlaywrightBrowserExecutor();
+    const pageUrl = `${baseUrl}/ambiguous-download-choice.html`;
+    const targetId = await resolveTargetId(executor, pageUrl, (el) => String(el.text ?? '').includes('Primary download'));
+    const planner = makeHybrid(() =>
+      JSON.stringify({
+        selectedCapabilityName: 'DownloadCapability',
+        action: 'click',
+        targetId,
+        confidence: 0.94,
+        reason: 'pick primary',
+        candidateTargets: [targetId],
+      }),
+    );
+
+    const agent = new BrowserAgent({ executor, observer: new DOMPageObserver(), planner, validator: new DefaultActionValidator() });
+    await agent.run('download primary', pageUrl, 1);
+    expect(await executor.getCurrentUrl()).toContain('/primary');
+    await executor.close();
+  });
+
+  it('semantic link choice with maxSteps=1 navigates to /install', async () => {
+    const executor = new PlaywrightBrowserExecutor();
+    const pageUrl = `${baseUrl}/semantic-link-choice.html`;
+    const targetId = await resolveTargetId(executor, pageUrl, (el) => String(el.text ?? '').includes('Installation guide'));
+    const planner = makeHybrid(() =>
+      JSON.stringify({
+        selectedCapabilityName: 'OpenRelevantLinkCapability',
+        action: 'click',
+        targetId,
+        confidence: 0.92,
+        reason: 'install docs intent',
+        candidateTargets: [targetId],
+      }),
+    );
+
+    const agent = new BrowserAgent({ executor, observer: new DOMPageObserver(), planner, validator: new DefaultActionValidator() });
+    await agent.run('install docs', pageUrl, 1);
+    expect(await executor.getCurrentUrl()).toContain('/install');
+    await executor.close();
+  });
+
+  it('latest list item with maxSteps=1 navigates to /item-2026-04', async () => {
+    const executor = new PlaywrightBrowserExecutor();
+    const pageUrl = `${baseUrl}/list-latest-item.html`;
+    const targetId = await resolveTargetId(executor, pageUrl, (el) => String(el.text ?? '').includes('2026-04 latest'));
+    const planner = makeHybrid(() =>
+      JSON.stringify({
+        selectedCapabilityName: 'SelectListItemCapability',
+        action: 'click',
+        targetId,
+        confidence: 0.91,
+        reason: 'latest item',
+        candidateTargets: [targetId],
+      }),
+    );
+
+    const agent = new BrowserAgent({ executor, observer: new DOMPageObserver(), planner, validator: new DefaultActionValidator() });
+    await agent.run('open latest', pageUrl, 1);
+    expect(await executor.getCurrentUrl()).toContain('/item-2026-04');
     await executor.close();
   });
 });
