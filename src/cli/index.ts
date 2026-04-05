@@ -35,6 +35,6 @@ export async function runCli(argv = process.argv.slice(2), options: RunCliOption
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   runCli(process.argv.slice(2), { printOutput: true }).then((code) => {
-    process.exitCode = code;
+    process.exit(code);
   });
 }
