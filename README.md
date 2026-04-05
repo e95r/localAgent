@@ -1,118 +1,141 @@
 # Browser Agent MVP (TypeScript + Playwright)
 
-Итерация 4: deterministic/hybrid архитектура сохранена, добавлен реальный `LocalLlmClient` (Ollama HTTP API) как opt-in путь.
+Проект на **Iteration 5**: к существующей deterministic/hybrid архитектуре добавлены **Recorder + Scenario Replay**.
 
-## Архитектура (Iteration 4)
+## Архитектура (Iteration 5)
 
-- `RuleBasedPlanner` — основной deterministic planner.
-- `HybridPlanner` — сначала deterministic, потом `LlmPlanner` fallback.
-- `ActionValidator` — authoritative guardrail на любые действия.
-- `LlmPlanner` + строгий JSON контракт — основной слой структурной валидации LLM-ответа.
-- `FakeLlmClient` остаётся базой для unit/integration/e2e.
-- `LocalLlmClient` теперь реализован через Ollama (`OllamaLlmClient`).
+Базовые принципы Iteration 4 сохранены:
+- deterministic planner first,
+- LLM fallback second,
+- validator authoritative,
+- `ask_user` на небезопасных/неоднозначных шагах.
 
-> Базовый suite по-прежнему не зависит от локально запущенной модели.
+Новые слои Iteration 5:
+- `ScenarioRecorder` — запись шагов сценария из наблюдаемого `PageState`.
+- `ScenarioStore` — сохранение/загрузка JSON-сценариев и schema validation.
+- `ReplayTargetResolver` — strict/fallback/semantic target resolution + confidence.
+- `ScenarioRunner` — последовательный replay в режимах `strict` и `adaptive`.
+- `post-step verification` — проверка expected outcome после каждого шага.
+- расширенные replay debug artifacts.
 
-## Новые модули Iteration 4
+> Основной test-suite остаётся локальным и воспроизводимым: без внешних сайтов и без обязательной реальной Ollama.
 
-- `src/llm/ollama-config.ts` — typed config + env parsing + validation.
-- `src/llm/ollama-response.ts` — extraction/sanitization (fenced JSON, лишний текст, partial JSON).
-- `src/llm/ollama-client.ts` — реальный HTTP клиент с timeout/retry/error mapping.
-- `src/llm/llm-client-factory.ts` — `createLlmClientFromConfig` / `createLlmClientFromEnv`.
-- `src/llm/local-llm-client.ts` — backward-compatible alias на Ollama клиент.
+## Новые модули
 
-## Ollama config (env)
+- `src/scenario/types.ts`
+- `src/scenario/schema.ts`
+- `src/recorder/scenario-recorder.ts`
+- `src/storage/scenario-store.ts`
+- `src/replay/target-resolver.ts`
+- `src/replay/post-step-verifier.ts`
+- `src/replay/scenario-runner.ts`
 
-Поддерживаются:
+## Формат сценария (JSON)
 
-- `OLLAMA_ENABLED` (`true/false`)
-- `OLLAMA_BASE_URL` (default `http://127.0.0.1:11434`)
-- `OLLAMA_MODEL` (default `qwen2.5:7b-instruct`)
-- `OLLAMA_TIMEOUT_MS` (default `12000`)
-- `OLLAMA_TEMPERATURE` (default `0`)
-- `OLLAMA_NUM_PREDICT` (default `320`)
-- `OLLAMA_RETRIES` (default `1`)
-- `OLLAMA_KEEP_ALIVE` (optional)
-- `OLLAMA_ENABLE_JSON_MODE` (default `true`)
+```json
+{
+  "schemaVersion": "1.0.0",
+  "id": "scenario-id",
+  "name": "Search and open docs",
+  "createdAt": "2026-04-05T00:00:00.000Z",
+  "updatedAt": "2026-04-05T00:00:00.000Z",
+  "metadata": {
+    "sourceUrl": "http://127.0.0.1:3000/replay-stable-page.html",
+    "startUrl": "http://127.0.0.1:3000/replay-stable-page.html",
+    "description": "optional"
+  },
+  "steps": [
+    {
+      "stepId": "step-1",
+      "action": { "actionType": "click" },
+      "pageUrlAtRecordTime": "http://127.0.0.1:3000/replay-stable-page.html",
+      "target": {
+        "strictSelectors": ["#search-btn"],
+        "fallbackSelectors": ["button[aria-label=\"Search\"]"],
+        "text": "Search",
+        "ariaLabel": "Search"
+      },
+      "postActionExpectation": { "textVisible": "Search complete" }
+    }
+  ]
+}
+```
 
-### Recommended preset
+## Replay режимы
 
-Стартовый практичный preset:
+### `strict`
+- использует только strict selectors;
+- без semantic guessing;
+- если target не найден — fail/ask_user.
 
-- модель: `qwen2.5:7b-instruct` (или `qwen2.5:14b-instruct` при ресурсах)
-- `OLLAMA_TEMPERATURE=0`
-- `OLLAMA_ENABLE_JSON_MODE=true`
-- `OLLAMA_RETRIES=1`
+### `adaptive`
+Порядок resolution:
+1. strict selector,
+2. fallback selectors,
+3. semantic snapshot matching,
+4. optional planner-assisted fallback,
+5. `ask_user` при низкой уверенности или ambiguity.
 
-## Подключение реального LLM клиента
+## Recorder API
 
 ```ts
-import { createLlmClientFromEnv, LlmPlanner, HybridPlanner, RuleBasedPlanner, withPlannerConfig } from 'browser-agent-mvp';
-
-const llmClient = createLlmClientFromEnv(process.env);
-const llmPlanner = new LlmPlanner(llmClient, [
-  'DownloadCapability',
-  'OpenRelevantLinkCapability',
-  'ExtractMainContentCapability',
-  'SelectListItemCapability',
-]);
-
-const planner = new HybridPlanner(
-  new RuleBasedPlanner(),
-  llmPlanner,
-  withPlannerConfig({ enableLlmFallback: true }),
-);
+const recorder = new ScenarioRecorder();
+recorder.startRecording('Search flow', startUrl);
+recorder.recordStep({ actionType: 'type', pageState, target, value: 'cats' });
+recorder.recordStep({ actionType: 'submit_search', pageState, target: submitBtn, mode: 'button' });
+const scenario = recorder.stopRecording();
 ```
 
-Если `OLLAMA_ENABLED=false`, можно явно передать `FakeLlmClient` через factory fallback.
+## Persistence API
 
-## Debug artifacts (расширение)
-
-Когда LLM путь используется, добавляются:
-
-- `llm-client-metadata.json` (model/baseUrl/timeout/retries/jsonMode/retryAttempts)
-- `llm-sanitized-response.txt`
-- `llm-parse-error.txt` (если есть)
-- + существующие `llm-prompt.txt`, `llm-raw-response.txt`, `llm-parsed-response.json`
-
-## Запуск Ollama локально
-
-Пример:
-
-```bash
-# 1) запустить ollama server
-ollama serve
-
-# 2) скачать модель
-ollama pull qwen2.5:7b-instruct
-
-# 3) включить клиент
-export OLLAMA_ENABLED=true
-export OLLAMA_MODEL=qwen2.5:7b-instruct
-export OLLAMA_BASE_URL=http://127.0.0.1:11434
+```ts
+await saveScenarioToFile('scenarios/search.json', scenario);
+const loaded = await loadScenarioFromFile('scenarios/search.json');
 ```
 
-## Тесты
+## Replay API
 
-### Основной suite (без реального Ollama)
+```ts
+const runner = new ScenarioRunner({ executor, observer, validator });
+const replay = await runner.runScenario(loadedScenario, { mode: 'adaptive', maxRetriesPerStep: 1 });
+```
+
+## Replay debug artifacts
+
+При failure создаются:
+- `scenario.json`
+- `replay-mode.json`
+- `replay-step-results.json`
+- `target-resolution.json`
+- `replay-failure-reason.txt`
+- `expected-vs-actual.json`
+
+## Fixtures для replay
+
+- `replay-stable-page.html`
+- `replay-shifted-page.html`
+- `replay-broken-page.html`
+- `replay-search-page.html`
+- `replay-download-page.html`
+- `replay-article-page.html`
+
+## Запуск тестов
+
+### Полный suite
 
 ```bash
 npm run build
-npm run test:unit
-npm run test:integration
-npm run test:e2e
 npm run test
 ```
 
-### Опциональные smoke tests с реальным Ollama
+### Replay-focused
 
-По умолчанию эти тесты пропускаются.
+```bash
+npm run test:replay
+```
+
+### Опциональные smoke tests с реальной Ollama
 
 ```bash
 OLLAMA_SMOKE=1 OLLAMA_ENABLED=true npm run test:ollama
 ```
-
-Smoke tests проверяют:
-- минимальный strict JSON path,
-- planner path с реальным ответом,
-- clean failure при неверной модели/недоступном сервере.
