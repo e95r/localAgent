@@ -12,4 +12,9 @@ describe('target-map', () => {
   it('throws on missing target', () => {
     expect(() => mapTargetIdToSelector('missing', items)).toThrow(/not found/);
   });
+
+  it('resolves data-agent-id selectorHint correctly', () => {
+    const dataAgentItems = [makeElement({ id: 'el-7', selectorHint: '[data-agent-id="el-7"]' })];
+    expect(mapTargetIdToSelector('el-7', dataAgentItems)).toBe('[data-agent-id="el-7"]');
+  });
 });
